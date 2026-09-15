@@ -64,3 +64,18 @@ def ler_do_zip(caminho: Path, interno: str, **kwargs) -> pd.DataFrame:
     """Lê um CSV de dentro do zip. Os microdados vêm em latin-1, separados por ';'."""
     with zipfile.ZipFile(caminho) as zf, zf.open(interno) as fh:
         return pd.read_csv(fh, sep=";", encoding="latin-1", **kwargs)
+
+
+def markdown_tabela(dados, indice: str = "") -> str:
+    """DataFrame ou Series como tabela markdown, sem depender do `tabulate`."""
+    df = dados.to_frame() if hasattr(dados, "to_frame") and dados.ndim == 1 else dados
+    cabecalho = [indice or (df.index.name or "")] + [str(c) for c in df.columns]
+    def celula(v):
+        if isinstance(v, float):
+            return f"{v:.4f}".replace(".", ",")
+        return str(v)
+    linhas = ["| " + " | ".join(cabecalho) + " |",
+              "|" + "|".join(["---"] + ["---:"] * len(df.columns)) + "|"]
+    linhas += ["| " + " | ".join([str(i)] + [celula(v) for v in linha]) + " |"
+               for i, linha in zip(df.index, df.to_numpy())]
+    return "\n".join(linhas)

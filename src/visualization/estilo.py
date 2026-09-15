@@ -31,7 +31,7 @@ def aplicar_estilo() -> None:
         "font.size": 10, "font.family": "sans-serif",
         "text.color": TINTA, "axes.labelcolor": TINTA_2,
         "xtick.color": TINTA_2, "ytick.color": TINTA_2,
-        "axes.titlesize": 12.5, "axes.titleweight": "semibold",
+        "axes.titlesize": 12.5, "axes.titleweight": "bold",
         "axes.titlecolor": TINTA, "axes.titlelocation": "left", "axes.titlepad": 14,
         "axes.edgecolor": GRADE, "axes.linewidth": 0.8,
         "axes.spines.top": False, "axes.spines.right": False,

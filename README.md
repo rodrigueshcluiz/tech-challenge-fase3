@@ -291,11 +291,11 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
 *A preencher conforme o desenvolvimento.*
 
 - [x] Análise exploratória — `notebooks/01_analise_exploratoria.py`, relatório em `reports/EDA.md`
-- [ ] Engenharia de atributos
-- [ ] Pipeline Scikit-learn com imputação, transformação e encoding integrados
+- [x] Engenharia de atributos — contexto territorial defasado em `aluno_features`
+- [x] Pipeline Scikit-learn com imputação, transformação e encoding integrados — `src/modeling/pipeline.py`
 - [x] Tratamento de data leakage — contexto territorial defasado em `aluno_features`
-- [ ] Treinamento, validação e otimização
-- [ ] Interpretabilidade (Feature Importance, SHAP)
+- [x] Treinamento, validação e otimização — `treinar_modelo.py`
+- [x] Interpretabilidade (Feature Importance, SHAP)
 
 O tratamento de data leakage já está feito na camada de dados: `aluno_features`
 traz todo indicador de resultado defasado em um ano, com verificação automática
@@ -303,15 +303,72 @@ nos dois sentidos. Ver a seção da base acima.
 
 ## Escolha do algoritmo
 
-*A preencher.*
+Dois modelos, e dois baselines que existem para dar sentido aos números.
+
+| | Por quê |
+|---|---|
+| **Taxa média** | O piso absoluto. AUC 0,5 por construção. |
+| **Persistência municipal** | Prevê, para cada aluno, a taxa do seu município no ano anterior. Não usa aprendizado nenhum — só uma coluna que já está na tabela. **É contra este que o modelo precisa ser comparado.** |
+| **Regressão logística** | Referência linear. Imputação por mediana, padronização e one-hot, tudo dentro do `Pipeline`. |
+| **Gradient boosting em histograma** | Trata valor faltante nativamente e divide categóricas por conjunto, sem supor ordem. Regularizado com L2 e parada antecipada. |
+
+O pré-processamento está **dentro** do `Pipeline`, não antes dele. Isso não é
+estilo: um imputador ajustado fora aprenderia a mediana do conjunto inteiro,
+teste incluído, e essa informação escorreria para o treino. Dentro do pipeline,
+cada fold reajusta o pré-processamento só com os seus próprios dados.
+
+**Duas features foram descartadas automaticamente**: `mun_variacao_publica_t1` e
+`uf_variacao_publica_t1` são 100% nulas em 2024, porque variação em t-1 exige
+t-2. Sob divisão temporal elas existiriam só no teste — o modelo nunca teria
+visto um valor. O código detecta e descarta, em vez de imputar um número
+inventado.
 
 ## Métricas de avaliação
 
-*A preencher.*
+Todas ponderadas pelo peso amostral — sem isso descrevem a amostra avaliada, não
+a população de crianças.
+
+- **AUC-ROC** e **precisão média**: discriminação, a capacidade de ordenar alunos.
+- **Brier** e **log loss**: calibração, se a probabilidade prevista corresponde à
+  frequência real. Num problema de sinal fraco, é onde o modelo pode agregar
+  mesmo sem discriminar melhor.
+
+**Validação:** divisão temporal (treina em 2024, testa em 2025) e, dentro do
+treino, `GroupKFold` por escola. A divisão temporal mede o que interessa — se o
+modelo serve no ano seguinte. O agrupamento por escola evita que colegas do mesmo
+aluno fiquem dos dois lados da divisão: com 14,5% da variância entre escolas,
+conhecer um colega é quase conhecer a resposta.
 
 ## Interpretação dos resultados
 
-*A preencher.*
+| modelo | AUC | Brier | log loss |
+|---|---:|---:|---:|
+| Persistência municipal | **0,6397** | 0,2193 | 0,6282 |
+| Gradient boosting | 0,6394 | **0,2166** | **0,6211** |
+| Regressão logística | 0,6322 | 0,2209 | 0,6319 |
+| Taxa média | 0,5000 | 0,2297 | 0,6521 |
+
+**O modelo não supera a persistência territorial em discriminação.** Empata:
+0,6394 contra 0,6397. Em termos de ordenar alunos por risco, o gradient boosting
+não aprendeu nada além do que já estava na coluna "taxa do município no ano
+passado".
+
+**Onde ele ganha é em calibração.** Brier 0,2166 contra 0,2193 e log loss 0,6211
+contra 0,6282. As probabilidades do modelo são mais confiáveis, mesmo ordenando
+igual — o que importa se a saída alimentar uma decisão de alocação de recurso,
+e não apenas um ranking.
+
+**O custo de generalizar entre anos é visível:** dentro de 2024 a validação
+cruzada dá AUC 0,6688; em 2025 cai para 0,6394. Essa diferença de 0,03 é a
+distância entre prever o presente e prever o futuro, e só aparece porque a
+divisão é temporal. Uma divisão aleatória teria escondido.
+
+**A importância confirma o diagnóstico.** Por permutação, `mun_taxa_rede_t1`
+domina (queda de 0,064 no AUC ao ser embaralhada), seguida de longe por
+`sigla_uf` (0,017). Todo o resto fica abaixo de 0,003 — inclusive o INSE. O SHAP
+distribui um pouco mais o crédito (região, taxa da UF, porte da escola), mas a
+conclusão é a mesma: **o modelo é, essencialmente, um mapa de onde a criança
+mora.**
 
 ## Insights encontrados
 
@@ -340,8 +397,17 @@ Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
 - Um recorte (PB 2024, rede estadual, 1.180 alunos) diverge 0,70 p.p. do
   agregado publicado, provavelmente por critério de publicação do INEP não
   codificado nos microdados.
-- A base ainda não inclui variáveis socioeconômicas externas (Censo Escolar,
-  FUNDEB, Atlas do Desenvolvimento Humano, Cadastro Único).
+- **O teto é da fonte, não do método.** 86% da variância do alvo está entre
+  alunos da mesma escola, e os microdados não trazem nenhuma variável de aluno —
+  sem sexo, idade, raça ou dados do domicílio. Nenhum algoritmo alcança
+  discriminação alta com o que existe.
+- **O nível mais informativo é inacessível.** A escola explica 14,5% da variância,
+  mas o código de escola do INEP é mascarado e resorteado a cada ano: não joina
+  com Censo Escolar nem com o INSE por escola, e não permite montar histórico.
+- **O enriquecimento disponível é todo municipal** e, por isso, constante dentro
+  do município — exatamente onde a variação acontece.
+- A base ainda não inclui Censo Escolar agregado, FUNDEB municipal, Censo 2022 do
+  IBGE nem Cadastro Único.
 
 ## Aplicação prática para políticas públicas
 
