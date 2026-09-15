@@ -20,10 +20,12 @@ def gold_minimo():
         "id_municipio": "1",
         "rede": REDE_META_UF,
         "taxa_alfabetizacao": [0.40, 0.50, 0.60],
+        "media_portugues": [700.0, 710.0, 720.0],
         "nivel_alfabetizacao": [2, 3, 4],
     })
     # A mesma série na rede municipal, que é o recorte de `mun_taxa_rede_t1`.
-    ind = pd.concat([ind, ind.assign(rede=3, taxa_alfabetizacao=[0.41, 0.51, 0.61])],
+    ind = pd.concat([ind, ind.assign(rede=3, taxa_alfabetizacao=[0.41, 0.51, 0.61],
+                                     media_portugues=[701.0, 711.0, 721.0])],
                     ignore_index=True)
     resumo = pd.DataFrame({
         "ano": [2024, 2025, 2026], "sigla_uf": "SP", "rede": REDE_META_UF,
@@ -56,9 +58,11 @@ class TestContextoDoAnoProjetado:
 
     def test_a_taxa_da_rede_respeita_a_rede_do_aluno(self):
         ctx = _contexto_do_ano(gold_minimo(), 2026)
-        por_rede = ctx["mun_rede"].set_index("rede").mun_taxa_rede_t1
-        assert por_rede.loc[3] == pytest.approx(0.51)
-        assert por_rede.loc[REDE_META_UF] == pytest.approx(0.50)
+        por_rede = ctx["mun_rede"].set_index("rede")
+        assert por_rede.mun_taxa_rede_t1.loc[3] == pytest.approx(0.51)
+        assert por_rede.mun_taxa_rede_t1.loc[REDE_META_UF] == pytest.approx(0.50)
+        # A média acompanha a taxa no mesmo recorte de rede e ano.
+        assert por_rede.mun_media_lp_t1.loc[3] == pytest.approx(711.0)
 
     def test_a_meta_vem_do_ano_projetado_e_nao_de_t1(self):
         """A meta é publicada antes da avaliação: é a única que olha para a frente."""

@@ -32,7 +32,7 @@ from src.report import Relatorio
 # Colunas de contexto que precisam ser reescritas para o ano projetado. As demais
 # — território, porte, INSE — são estruturais e seguem valendo.
 CONTEXTO_DEFASADO = [
-    "mun_taxa_rede_t1", "mun_taxa_publica_t1", "mun_nivel_t1",
+    "mun_taxa_rede_t1", "mun_media_lp_t1", "mun_taxa_publica_t1", "mun_nivel_t1",
     "mun_variacao_publica_t1", "uf_taxa_publica_t1", "uf_variacao_publica_t1",
 ]
 METAS = ["mun_meta_ano", "uf_meta_ano"]
@@ -50,8 +50,10 @@ def _contexto_do_ano(gold: dict[str, pd.DataFrame], ano_projetado: int) -> dict:
     ind = gold["indicador_municipio"]
     resumo = gold["resumo_uf"]
 
-    mun_rede = (ind[ind.ano == anterior][["id_municipio", "rede", "taxa_alfabetizacao"]]
-                .rename(columns={"taxa_alfabetizacao": "mun_taxa_rede_t1"}))
+    mun_rede = (ind[ind.ano == anterior]
+                [["id_municipio", "rede", "taxa_alfabetizacao", "media_portugues"]]
+                .rename(columns={"taxa_alfabetizacao": "mun_taxa_rede_t1",
+                                 "media_portugues": "mun_media_lp_t1"}))
     mun_publica = (ind[(ind.ano == anterior) & (ind.rede == REDE_META_UF)]
                    [["id_municipio", "taxa_alfabetizacao", "nivel_alfabetizacao"]]
                    .rename(columns={"taxa_alfabetizacao": "mun_taxa_publica_t1",

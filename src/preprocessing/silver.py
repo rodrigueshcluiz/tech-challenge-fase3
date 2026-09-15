@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 from src.config import (
-    ALFABETIZACAO_CORTE, ALFABETIZACAO_RULE_VERSION, ANO_META_MIN, REDE_COMPOSICAO,
-    REDE_MAP, REDE_META_MUNICIPIO, REDE_META_UF, SCHEMA_VERSION,
+    ALFABETIZACAO_CORTE, ALFABETIZACAO_RULE_VERSION, ANO_META_MIN, COLUNAS_NIVEL,
+    REDE_COMPOSICAO, REDE_MAP, REDE_META_MUNICIPIO, REDE_META_UF, SCHEMA_VERSION,
 )
 from src.report import Relatorio
 from src.utils import puro, sha256_concat_ws, texto_int
@@ -42,6 +42,9 @@ def construir_silver(fatos_uf, fatos_mun, dim_uf, dim_mun, meta_uf, meta_mun, me
     fatos["id_municipio"] = fatos.id_municipio.astype("string")
     fatos["rede_label"] = fatos.rede.map(REDE_MAP).astype("string")
     fatos["taxa_alfabetizacao"] = fatos.taxa_alfabetizacao / 100.0
+    # Mesma escala da taxa: fração 0–1, não percentual.
+    for destino in COLUNAS_NIVEL.values():
+        fatos[destino] = fatos[destino] / 100.0
     fatos["alfabetizado"] = (fatos.media_portugues >= ALFABETIZACAO_CORTE).astype("boolean")
     fatos.loc[fatos.media_portugues.isna(), "alfabetizado"] = pd.NA
     fatos["fonte_dados"] = "oficial_inep"

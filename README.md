@@ -69,6 +69,10 @@ oficiais incompatíveis.
 Tipos legíveis sem conversão por Spark, DuckDB, Polars e pandas: texto `string`,
 inteiros `int64`, decimais `double`, datas `timestamp[us, UTC]`.
 
+**O contrato de cada tabela — grão, colunas, unidades, garantias e ressalvas —
+está em [`CONTRACT.md`](CONTRACT.md).** Leia antes de consumir a Gold: o domínio
+de rede e o escopo das metas são os dois pontos em que o erro é silencioso.
+
 ### `aluno_features` — a base de treino
 
 Uma linha por aluno avaliado em **2024 e 2025** (3,8 milhões). 2023 não entra como
@@ -189,6 +193,7 @@ Os dois passos seguintes consomem a Gold e são independentes entre si:
 
 | comando | o que faz | tempo |
 |---|---|---|
+| `otimizar_modelo.py` | busca hiperparâmetros por validação cruzada dentro de 2024 → `reports/OTIMIZACAO.md` | ~1 h |
 | `treinar_modelo.py` | treina e compara os três modelos no grão do aluno, com interpretabilidade → `reports/MODELAGEM.md` | ~12 min (`--sem-shap`: ~2 min) |
 | `prever_municipios.py` | afere o método contra 2025 e projeta 2026 por município → `reports/RISCO_MUNICIPAL.md` | ~2 min (`--sem-projecao`: ~1 min) |
 
@@ -214,9 +219,11 @@ tech-challenge-fase3
 │   ├── modeling/     dados · pipeline · agregação municipal · projeção
 │   ├── evaluation/   validação da Gold e métricas de modelo
 │   └── visualization/
-├── reports/          validação, modelagem, risco municipal, manifesto
+├── reports/          validação, modelagem, risco municipal, auditoria, manifesto
 ├── images/
+├── CONTRACT.md       contrato de dados da Gold: grão, tipos, garantias
 ├── gerar_gold.py         pipeline de dados
+├── otimizar_modelo.py    busca de hiperparâmetros
 ├── treinar_modelo.py     modelagem no grão do aluno
 ├── prever_municipios.py  projeção e risco no grão do município
 ├── requirements.txt
@@ -320,7 +327,8 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
 - [x] Engenharia de atributos — contexto territorial defasado em `aluno_features`
 - [x] Pipeline Scikit-learn com imputação, transformação e encoding integrados — `src/modeling/pipeline.py`
 - [x] Tratamento de data leakage — contexto territorial defasado em `aluno_features`
-- [x] Treinamento, validação e otimização — `treinar_modelo.py`
+- [x] Otimização de hiperparâmetros — `otimizar_modelo.py`, relatório em `reports/OTIMIZACAO.md`
+- [x] Treinamento e validação — `treinar_modelo.py`
 - [x] Interpretabilidade (Feature Importance, SHAP)
 - [x] Agregação para o grão da decisão e ranking de risco — `prever_municipios.py`, relatório em `reports/RISCO_MUNICIPAL.md`
 
@@ -348,6 +356,27 @@ O pré-processamento está **dentro** do `Pipeline`, não antes dele. Isso não 
 estilo: um imputador ajustado fora aprenderia a mediana do conjunto inteiro,
 teste incluído, e essa informação escorreria para o treino. Dentro do pipeline,
 cada fold reajusta o pré-processamento só com os seus próprios dados.
+
+### Os hiperparâmetros foram buscados, e os padrões venceram
+
+`otimizar_modelo.py` varre 15 configurações por modelo com `GroupKFold` de 3 folds
+**inteiramente dentro de 2024** — 2025 entra uma única vez, depois da escolha, só
+para medir. O resultado está em `reports/OTIMIZACAO.md` e é curto: **nenhuma
+configuração ajustada foi adotada.**
+
+| modelo | AUC padrão (CV) | AUC melhor (CV) | fora do tempo |
+|---|---:|---:|---:|
+| boosting | 0,6688 | 0,6689 | 0,6394 → 0,6391 |
+| floresta | 0,6670 | 0,6687 | 0,6407 → **0,6381** |
+| logística | 0,6620 | 0,6620 | 0,6322 → 0,6323 |
+
+A floresta foi a única com ganho aparente na validação (+0,0017) e é justamente a
+que **piorou** fora do tempo. Isso obrigou a apertar o critério de adoção de um
+para dois desvios entre folds — a lição está documentada no relatório, inclusive
+o fato de que foi o resultado fora do tempo que expôs a permissividade.
+
+Varrer 42 configurações sobre 1,85 milhão de alunos sem mover o terceiro decimal
+do AUC é a evidência mais direta de que **o teto é dos dados, não do método**.
 
 **Duas features foram descartadas automaticamente**: `mun_variacao_publica_t1` e
 `uf_variacao_publica_t1` são 100% nulas em 2024, porque variação em t-1 exige
@@ -468,10 +497,13 @@ o formato da saída.
 
 Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
 
-1. **A escola explica 14,5% da variância do alvo** — mais que município (8,3%) e
-   UF (3,7%) somados. É o nível mais informativo e o único que não podemos
-   enriquecer, porque o código de escola do INEP é mascarado e resorteado a cada
-   ano. No município mediano, a melhor e a pior escola diferem **41 p.p.**
+1. **A escola explica de 13,5% a 14,5% da variância do alvo** — mais que município
+   (8,1–8,3%) e UF (3,7–4,0%) somados. A faixa é o intervalo entre o estimador
+   simples e o componente de variância da ANOVA, que desconta o ruído das escolas
+   pequenas (ver `reports/AUDITORIA.md`). É o nível mais informativo e o único que
+   não podemos enriquecer, porque o código de escola do INEP é mascarado e
+   resorteado a cada ano. No município mediano, a melhor e a pior escola diferem
+   **41 p.p.**
 2. **86% da variação acontece entre alunos da mesma escola**, e a fonte não traz
    nenhuma variável de aluno. O teto do modelo é da fonte, não da modelagem.
 3. **O INSE parece irrelevante e não é**: +0,02 no grão do aluno, +0,14 no
@@ -500,6 +532,21 @@ Da projeção municipal (`reports/RISCO_MUNICIPAL.md`):
 10. **O erro é heterocedástico por porte**: 12,4 p.p. nos municípios menores
     contra 7,8 p.p. nos maiores. Uma margem única trataria como iguais dois casos
     com incerteza muito diferente.
+
+Da busca de hiperparâmetros (`reports/OTIMIZACAO.md`) e da auditoria
+(`reports/AUDITORIA.md`):
+
+11. **Ajustar hiperparâmetros não move este problema.** 42 configurações sobre
+    1,85 milhão de alunos, três algoritmos: o ganho na validação cruzada foi de
+    0,0000 a 0,0017 de AUC, e a única configuração com ganho aparente **piorou
+    fora do tempo** (0,6407 → 0,6381). É a medição direta do que a convergência
+    dos três modelos já sugeria — o teto é dos dados.
+12. **13,4% do erro da projeção municipal é ruído do próprio alvo**, não do
+    modelo: o erro-padrão binomial mediano da taxa observada é 3,5 p.p.
+13. **O ranking de importância é de grupos, não de variáveis.** Há 8 pares de
+    features com |r| > 0,80, e os quatro primeiros colocados são quase a mesma
+    informação medida de quatro formas. Podar piora o desempenho, então não se
+    poda — mas a leitura precisa levar isso em conta.
 
 ## As perguntas de negócio
 
@@ -700,7 +747,9 @@ dá duas medições em vez de uma, uma estimativa de dispersão do erro fora do 
 que hoje não existe, e — o mais importante — permite **conferir a projeção de
 2026 contra o resultado**, fechando o ciclo que este projeto só pode abrir. Dá
 também um ano de validação separado, para ajustar hiperparâmetro sem contaminar o
-teste (hoje os da floresta são fixos por critério estrutural, não otimizados).
+teste — hoje a busca roda por validação cruzada dentro de 2024, o que é correto,
+mas não permite verificar se um ganho de validação sobrevive antes de gastar o
+único ano de teste que existe.
 
 **Engenharia.** Persistir o modelo treinado para separar treino de inferência;
 versionar os artefatos de predição junto ao manifesto da Gold; e reexecutar o

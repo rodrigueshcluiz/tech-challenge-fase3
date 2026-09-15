@@ -31,6 +31,11 @@ IDENTIFICADORES = ["id_aluno", "id_escola_ano", "id_municipio", "ano"]
 NUMERICAS = [
     "escola_alunos_avaliados", "mun_alunos_avaliados",
     "latitude", "longitude",
+    # `mun_media_lp_t1` existe em `aluno_features` e **não entra aqui**: mede
+    # 0,930 de correlação com `mun_taxa_rede_t1` e carrega menos sinal sobre o
+    # alvo (0,225 contra 0,239). Acrescentá-la piorou AUC e Brier em base
+    # completa — numa floresta com `max_features="sqrt"`, uma cópia degradada
+    # dilui o sorteio de variáveis a cada divisão. Ver `reports/AUDITORIA.md`.
     "mun_taxa_rede_t1", "mun_taxa_publica_t1", "mun_nivel_t1",
     "mun_variacao_publica_t1", "mun_meta_ano",
     "uf_taxa_publica_t1", "uf_variacao_publica_t1", "uf_meta_ano",
