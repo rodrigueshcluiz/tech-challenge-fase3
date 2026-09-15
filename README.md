@@ -221,15 +221,16 @@ Todas ponderadas pelo peso amostral.
 - Brier e log loss: calibração das probabilidades.
 - Acurácia e F1 no corte de 0,5: acerto por classe.
 
-Acurácia e F1 estão na tabela, mas não decidem nada aqui, e o motivo aparece na
-própria tabela: o baseline que prevê a taxa média para todo mundo classifica
-todos como alfabetizados e sai com **o melhor F1 do conjunto (0,7926)** e
-acurácia igual à taxa base (0,6565). Com 66% de uma classe, um corte fixo
-premia quem chuta a maioria. Além disso, o modelo não é usado como
-classificador: a saída é a probabilidade, que depois é somada por município. No
-grão do município, onde existe uma decisão binária de verdade (cumprir ou não a
-meta), acurácia, precisão, recall e F1 são reportados em
-`reports/RISCO_MUNICIPAL.md`.
+Acurácia e F1 estão na tabela, mas não decidem nada aqui. O baseline que prevê
+a taxa média para todos classifica todo aluno como alfabetizado e assim obtém o
+maior F1 do conjunto (0,7926) e acurácia igual à taxa base (0,6565), com AUC
+0,5. Como 66% dos alunos são alfabetizados, responder sempre a classe
+majoritária já acerta dois terços das vezes.
+
+Além disso, o modelo não é usado como classificador: a saída é a probabilidade,
+que depois é somada por município. No grão do município, onde existe uma decisão
+binária de verdade (cumprir ou não a meta), acurácia, precisão, recall e F1 são
+reportados em `reports/RISCO_MUNICIPAL.md`.
 
 Validação temporal: treino em 2024, teste em 2025. Dentro do treino, `GroupKFold`
 por escola, para que alunos da mesma escola não fiquem dos dois lados da divisão.
