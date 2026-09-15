@@ -35,7 +35,9 @@ def _despivotar(df: pd.DataFrame, chaves: list[str], publicacao: int) -> pd.Data
     # "> 80" é piso mínimo, não alvo pontual.
     longo["meta_limiar"] = longo.bruto.astype("string").str.contains(">", na=False)
     longo["meta"] = numero(longo.bruto) / 100.0
-    # Meta 0 marca território sem meta publicada (nível 0), não alvo zero.
+    # Meta 0 ou vazia marca território sem meta publicada, não alvo zero. Não
+    # confundir com nível de alfabetização 0: esse é o nível mais baixo da
+    # escala (taxa mediana de 32%) e tem meta normalmente.
     longo.loc[longo.meta.fillna(-1) <= 0, "meta"] = np.nan
     longo["meta_publicacao"] = publicacao
     return longo.drop(columns=["coluna", "bruto"]).dropna(subset=["meta"])

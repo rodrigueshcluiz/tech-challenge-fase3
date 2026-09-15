@@ -39,13 +39,22 @@ def baseline_taxa_base(treino_y, treino_peso, n: int) -> np.ndarray:
     return np.full(n, float(np.average(treino_y, weights=treino_peso)))
 
 
-def baseline_persistencia(contexto: pd.DataFrame, media_global: float) -> np.ndarray:
+def baseline_persistencia(contexto: pd.DataFrame, media_global: float,
+                          coluna: str = "mun_taxa_rede_t1") -> np.ndarray:
     """Prevê a taxa do município no ano anterior.
 
     É o baseline que realmente desafia o modelo: não usa aprendizado nenhum,
     só a coluna que já existe na base. Municípios sem histórico caem na média.
+
+    A coluna padrão é a taxa da **rede do próprio aluno** (`mun_taxa_rede_t1`),
+    não a da rede pública agregada. A revisão final mostrou que essa distinção
+    decide o placar no grão do aluno: a taxa da rede do aluno sozinha faz AUC
+    0,6433 em 2025, acima da floresta (0,6407); a da rede pública faz 0,6397, e
+    era contra ela que o README comparava. Como a feature mais importante do
+    modelo é justamente `mun_taxa_rede_t1`, o baseline justo é ela. Os dois são
+    publicados, para que a diferença fique visível.
     """
-    return contexto.mun_taxa_publica_t1.fillna(media_global).to_numpy()
+    return contexto[coluna].fillna(media_global).to_numpy()
 
 
 def tabela(resultados: list[dict]) -> pd.DataFrame:

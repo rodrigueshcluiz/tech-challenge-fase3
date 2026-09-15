@@ -77,8 +77,16 @@ def main() -> int:
     media_treino = float(np.average(treino.y, weights=treino.peso))
     resultados.append(avaliar(teste.y, baseline_taxa_base(treino.y, treino.peso, len(teste)),
                               teste.peso, "taxa_base"))
-    resultados.append(avaliar(teste.y, baseline_persistencia(teste.contexto, media_treino),
-                              teste.peso, "persistencia_municipal"))
+    # Dois baselines de persistência, porque a escolha da coluna decide o placar:
+    # a taxa da rede do próprio aluno é a feature mais forte do modelo, e é
+    # contra ela que o aprendizado precisa ser medido. A da rede pública fica
+    # registrada porque era o baseline publicado antes da revisão final.
+    resultados.append(avaliar(teste.y, baseline_persistencia(teste.contexto, media_treino,
+                                                             "mun_taxa_rede_t1"),
+                              teste.peso, "persistencia_rede"))
+    resultados.append(avaliar(teste.y, baseline_persistencia(teste.contexto, media_treino,
+                                                             "mun_taxa_publica_t1"),
+                              teste.peso, "persistencia_publica"))
     for r in resultados:
         print(f"  {r['modelo']:24s} AUC {r['auc_roc']:.4f}")
 
@@ -111,7 +119,7 @@ def main() -> int:
 
     placar = tabela(resultados)
     print("\n" + placar.to_string())
-    ganhos = ganho_sobre(resultados, "persistencia_municipal")
+    ganhos = ganho_sobre(resultados, "persistencia_rede")
     melhor = placar.index[0]
 
     # --- interpretabilidade -------------------------------------------------
@@ -152,11 +160,12 @@ def main() -> int:
     # (acertar a probabilidade). O modelo perde numa e ganha na outra, e um
     # gráfico só contaria metade da história.
     rotulo_modelo = {"taxa_base": "Taxa média (moeda)",
-                     "persistencia_municipal": "Persistência municipal",
+                     "persistencia_rede": "Persistência (rede do aluno)",
+                     "persistencia_publica": "Persistência (rede pública)",
                      "logistica": "Regressão logística",
                      "floresta": "Random forest",
                      "boosting": "Gradient boosting"}
-    baselines = ("taxa_base", "persistencia_municipal")
+    baselines = ("taxa_base", "persistencia_rede", "persistencia_publica")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.6, 3.3),
                                    gridspec_kw={"wspace": 0.55})
 
@@ -213,8 +222,12 @@ def main() -> int:
     linhas += [f"| {n} | {m:.4f} | {s:.4f} |" for n, (m, s) in cv_resumo.items()]
     linhas += [
         "", "### Ganho sobre a persistência territorial", "",
-        "O baseline que importa não é a moeda: é prever, para cada aluno, a taxa do seu "
-        "município no ano anterior. Ele não usa aprendizado nenhum.", "",
+        "O baseline que importa não é a moeda: é prever, para cada aluno, a taxa da sua "
+        "rede no seu município no ano anterior (`persistencia_rede`). Ele não usa "
+        "aprendizado nenhum, e é a feature mais forte do modelo lida sozinha. "
+        "`persistencia_publica` usa a rede pública agregada e era o baseline publicado "
+        "antes da revisão final; fica registrado porque a escolha da coluna decide o "
+        "sinal da comparação em AUC.", "",
     ]
     linhas += [f"- **{n}**: {v:+.1%} de discriminação sobre a persistência"
                for n, v in ganhos.items()]
