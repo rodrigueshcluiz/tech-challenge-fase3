@@ -65,10 +65,12 @@ def _preprocessador_floresta(numericas, categoricas) -> ColumnTransformer:
     ], remainder="drop")
 
 
-def logistica(numericas, categoricas) -> Pipeline:
+def logistica(numericas, categoricas, **parametros) -> Pipeline:
+    padrao = dict(max_iter=1000, random_state=SEMENTE)
+    padrao.update(parametros)
     return Pipeline([
         ("preparo", _preprocessador_linear(numericas, categoricas)),
-        ("modelo", LogisticRegression(max_iter=1000, random_state=SEMENTE)),
+        ("modelo", LogisticRegression(**padrao)),
     ])
 
 

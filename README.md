@@ -189,6 +189,7 @@ Os dois passos seguintes consomem a Gold e são independentes entre si:
 
 | comando | o que faz | tempo |
 |---|---|---|
+| `otimizar_modelo.py` | busca hiperparâmetros por validação cruzada dentro de 2024 → `reports/OTIMIZACAO.md` | ~1 h |
 | `treinar_modelo.py` | treina e compara os três modelos no grão do aluno, com interpretabilidade → `reports/MODELAGEM.md` | ~12 min (`--sem-shap`: ~2 min) |
 | `prever_municipios.py` | afere o método contra 2025 e projeta 2026 por município → `reports/RISCO_MUNICIPAL.md` | ~2 min (`--sem-projecao`: ~1 min) |
 
@@ -217,6 +218,7 @@ tech-challenge-fase3
 ├── reports/          validação, modelagem, risco municipal, manifesto
 ├── images/
 ├── gerar_gold.py         pipeline de dados
+├── otimizar_modelo.py    busca de hiperparâmetros
 ├── treinar_modelo.py     modelagem no grão do aluno
 ├── prever_municipios.py  projeção e risco no grão do município
 ├── requirements.txt
@@ -320,7 +322,8 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
 - [x] Engenharia de atributos — contexto territorial defasado em `aluno_features`
 - [x] Pipeline Scikit-learn com imputação, transformação e encoding integrados — `src/modeling/pipeline.py`
 - [x] Tratamento de data leakage — contexto territorial defasado em `aluno_features`
-- [x] Treinamento, validação e otimização — `treinar_modelo.py`
+- [x] Otimização de hiperparâmetros — `otimizar_modelo.py`, relatório em `reports/OTIMIZACAO.md`
+- [x] Treinamento e validação — `treinar_modelo.py`
 - [x] Interpretabilidade (Feature Importance, SHAP)
 - [x] Agregação para o grão da decisão e ranking de risco — `prever_municipios.py`, relatório em `reports/RISCO_MUNICIPAL.md`
 
