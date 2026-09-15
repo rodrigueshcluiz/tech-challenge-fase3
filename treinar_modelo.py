@@ -135,6 +135,10 @@ def main() -> int:
             transformado = modelo_melhor.named_steps["preparo"].transform(sub)
             explicador = shap.TreeExplainer(modelo_melhor.named_steps["modelo"])
             valores = cronometrar("shap", explicador.shap_values, transformado)
+            valores = np.asarray(valores)
+            # A floresta devolve um eixo por classe; fica o da classe positiva.
+            if valores.ndim == 3:
+                valores = valores[..., -1]
             shap_series = (pd.Series(np.abs(valores).mean(axis=0),
                                      index=nomes_das_features(modelo_melhor))
                            .sort_values(ascending=False))
@@ -150,6 +154,7 @@ def main() -> int:
     rotulo_modelo = {"taxa_base": "Taxa média (moeda)",
                      "persistencia_municipal": "Persistência municipal",
                      "logistica": "Regressão logística",
+                     "floresta": "Random forest",
                      "boosting": "Gradient boosting"}
     baselines = ("taxa_base", "persistencia_municipal")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.6, 3.3),
