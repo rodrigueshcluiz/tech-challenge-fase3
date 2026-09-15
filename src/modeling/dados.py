@@ -29,6 +29,11 @@ GRUPO = "id_escola_ano"
 IDENTIFICADORES = ["id_aluno", "id_escola_ano", "id_municipio", "ano"]
 
 NUMERICAS = [
+    # Porte da escola e do município, contados no próprio ano avaliado. São
+    # proxies estruturais com defasagem implícita: o porte muda pouco de um ano
+    # para o outro, e a projeção de 2026 os carrega de 2025 exatamente por isso.
+    # Não derivam do alvo (correlação −0,013 e −0,047), mas estritamente só são
+    # conhecidos depois da avaliação. Ver `reports/AUDITORIA.md`, achado 6.1.
     "escola_alunos_avaliados", "mun_alunos_avaliados",
     "latitude", "longitude",
     # `mun_media_lp_t1` existe em `aluno_features` e **não entra aqui**: mede

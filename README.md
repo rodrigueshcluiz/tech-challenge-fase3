@@ -4,8 +4,11 @@ Projeto integrador da Fase 3. Parte da camada Gold construída na Fase 2 e a
 utiliza para análise exploratória e modelagem supervisionada da alfabetização
 infantil.
 
-**Estado atual:** a camada Gold está reconstruída, validada e materializada em
-Parquet, agora sobre fontes 100% oficiais do INEP. A modelagem é a próxima etapa.
+**Estado atual:** camada Gold reconstruída sobre fontes 100% oficiais do INEP,
+modelagem no grão do aluno concluída, risco municipal aferido contra 2025 e
+projetado para 2026. Para gestores, há um painel executivo
+(`reports/dashboard_executivo.html`) e o roteiro do vídeo
+(`reports/ROTEIRO_VIDEO.md`); a parte técnica está neste README e em `reports/`.
 
 ---
 
@@ -36,10 +39,12 @@ Toda a base vem de fontes oficiais do INEP, cobrindo **2023, 2024 e 2025**.
 | Fonte | Conteúdo |
 |---|---|
 | Microdados da AEEB (2023, 2024, 2025) | `TS_ALUNO` — 4,3 milhões de alunos com proficiência e peso amostral; `TS_ESTADO` e `TS_MUNICIPIO` — agregados oficiais |
-| Planilhas "Resultados e metas" (3 divulgações) | metas oficiais do Compromisso Nacional por UF (rede pública) e por município (rede municipal), 2024–2030 |
+| Planilhas "Resultados e metas" (3 divulgações) | metas oficiais do Compromisso Nacional por UF (rede pública) e por município (rede municipal), 2024–2030, e o nível de alfabetização de cada município |
+| INSE 2023 (INEP) | nível socioeconômico médio por município e rede — a variável socioeconômica |
+| Taxas de rendimento 2023–2025 (INEP) | aprovação, reprovação e abandono por município e rede — dados educacionais complementares |
 | IBGE (`data/external`) | dimensões territoriais: UF, região, município, capital, coordenadas |
 
-`data/raw/README.md` traz a URL de cada arquivo. Eles não são versionados (~82 MB).
+`data/raw/README.md` traz a URL de cada arquivo. Eles não são versionados (~190 MB).
 
 ### Camada Gold
 
@@ -123,8 +128,8 @@ por município — o que contorna o código de escola mascarado:
 - **INSE 2023** (`MEDIA_INSE` por município e rede). Sai a cada dois anos junto
   com o SAEB, então entra como característica estrutural, não como série. Para os
   alunos de 2024 é defasagem de um ano; para os de 2025, de dois.
-- **Taxas de rendimento 2023 e 2024**, defasadas em um ano como todo indicador de
-  resultado. Incluem o recorte por ano escolar: `mun_aprovacao_1ano_t1` é a
+- **Taxas de rendimento 2023 a 2025**, defasadas em um ano como todo indicador de
+  resultado (as de 2025 só servem à projeção de 2026). Incluem o recorte por ano escolar: `mun_aprovacao_1ano_t1` é a
   aprovação no 1º ano — a mesma coorte, um ano antes da prova.
 
 Cobertura quase total: INSE com 0,1% de faltantes e as taxas entre 0,0% e 0,3%.
@@ -232,7 +237,7 @@ tech-challenge-fase3
 
 ## Validação da camada de dados
 
-83 verificações aprovadas, 0 falhas, 3 avisos na última execução. As decisivas:
+100 verificações aprovadas, 0 falhas, 3 avisos na última execução. As decisivas:
 
 - **O pipeline reproduz o indicador oficial.** Recalculado a partir de 2,1
   milhões de registros ponderados, o indicador nacional de 2024 da rede pública
@@ -264,7 +269,7 @@ cada valor. Hoje: 37.499 metas municipais vêm de 2023, 674 de 2024 e 161 de 202
 ./.venv/bin/pytest
 ```
 
-51 testes sobre as regras que, se mudarem em silêncio, invalidam o resultado:
+63 testes sobre as regras que, se mudarem em silêncio, invalidam o resultado:
 domínio e composição dos escopos de rede, corte de alfabetização e as faixas em
 torno dele, leitura e consolidação das metas, chave determinística, arredondamento
 compatível com Spark, a defasagem temporal da `aluno_features`, a agregação
@@ -282,6 +287,13 @@ arquivos do INEP. São complementares ao `RELATORIO_VALIDACAO.md`, que valida os
 dados a cada execução: um verifica a regra, o outro verifica o resultado.
 
 ## Correções em relação à Fase 2
+
+A avaliação da Fase 2 apontou que, das seis entidades exigidas, só o indicador por
+UF era dado oficial: o indicador municipal não tinha sido ingerido, as três tabelas
+de meta eram derivadas por interpolação e os alunos eram simulados. Apontou também
+o grão misto em dois marts e a cobertura de testes de 30 linhas. Esta Gold responde
+a cada ponto — e, ao reconstruir sobre a fonte, revelou o erro de código de rede
+abaixo, que a Fase 2 não sabia que tinha.
 
 1. **Código de rede trocado.** O `REDE_MAP` da Fase 2 rotulava o código 5 como
    "privada" quando ele é a rede **pública** agregada. A coluna bate exatamente
@@ -301,6 +313,9 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
    dois marts cada, por nível territorial.
 6. **Alunos reais.** Os 11.600 alunos simulados deram lugar a 4,3 milhões de
    registros reais com peso amostral.
+7. **Testes.** De 30 linhas para 63 testes, cobrindo as regras que a avaliação
+   citou: chave determinística, corte de 743, integração das fontes e cálculo dos
+   marts.
 
 ## Notas de leitura dos dados
 
@@ -343,7 +358,8 @@ Três modelos, e dois baselines que existem para dar sentido aos números.
 | | Por quê |
 |---|---|
 | **Taxa média** | O piso absoluto. AUC 0,5 por construção. |
-| **Persistência municipal** | Prevê, para cada aluno, a taxa do seu município no ano anterior. Não usa aprendizado nenhum — só uma coluna que já está na tabela. **É contra este que o modelo precisa ser comparado.** |
+| **Persistência (rede do aluno)** | Prevê, para cada aluno, a taxa da sua rede no seu município no ano anterior — a coluna `mun_taxa_rede_t1`, lida sozinha. Não usa aprendizado nenhum. **É contra este que o modelo precisa ser comparado**, porque é a feature mais forte do modelo isolada. |
+| **Persistência (rede pública)** | A mesma ideia com a taxa da rede pública agregada. Era o baseline publicado antes da revisão final; fica porque a escolha da coluna decide o sinal da comparação. |
 | **Regressão logística** | Referência linear. Imputação por mediana, padronização e one-hot, tudo dentro do `Pipeline`. |
 | **Random forest** | 200 árvores fundas e independentes, depois a média. Ataca variância. Precisa de imputação e one-hot, não de escala. |
 | **Gradient boosting em histograma** | Árvores rasas encadeadas, cada uma corrigindo a anterior. Ataca viés. Trata valor faltante nativamente e divide categóricas por conjunto. |
@@ -404,24 +420,37 @@ conhecer um colega é quase conhecer a resposta.
 
 | modelo | AUC | Brier | log loss |
 |---|---:|---:|---:|
-| **Random forest** | **0,6407** | **0,2146** | **0,6170** |
-| Persistência municipal | 0,6397 | 0,2193 | 0,6282 |
+| Persistência (rede do aluno) | **0,6433** | 0,2190 | 0,6278 |
+| **Random forest** | 0,6407 | **0,2146** | **0,6170** |
+| Persistência (rede pública) | 0,6397 | 0,2193 | 0,6282 |
 | Gradient boosting | 0,6394 | 0,2166 | 0,6211 |
 | Regressão logística | 0,6322 | 0,2209 | 0,6319 |
 | Taxa média | 0,5000 | 0,2297 | 0,6521 |
 
-**A floresta supera a persistência territorial — por 0,001 de AUC.** Tecnicamente
-é o melhor modelo; na prática, ganhar um milésimo de um baseline que não aprende
-nada significa que **o aprendizado de máquina quase não acrescenta discriminação
-aqui**. O boosting empata (0,6394) e a logística perde. Três algoritmos
-diferentes chegando ao mesmo patamar é o que se espera quando o limite é dos
-dados, não do método.
+**Em discriminação, nenhum modelo supera uma coluna.** A taxa da rede do aluno no
+ano anterior, lida sozinha, ordena os alunos melhor (AUC 0,6433) do que a floresta
+(0,6407), o boosting e a logística. A primeira versão deste README comparava com a
+persistência da rede pública (0,6397) e concluía que a floresta ganhava por um
+milésimo; a revisão final trocou o baseline pela coluna que o próprio modelo elege
+como mais importante, e o sinal inverteu. **O aprendizado de máquina não acrescenta
+discriminação no grão do aluno.** Três algoritmos diferentes chegando ao mesmo
+patamar, abaixo de uma coluna, é o que se espera quando o limite é dos dados, não
+do método.
 
-**O ganho real é em calibração.** A floresta leva o Brier de 0,2193 para 0,2146
-e o log loss de 0,6282 para 0,6170 — uma melhora de 2,1% e 1,8% sobre a
-persistência, ordens de grandeza acima do ganho em AUC. As probabilidades são
-mais confiáveis mesmo ordenando quase igual, o que importa se a saída alimentar
-alocação de recurso em vez de só um ranking.
+**O ganho real é em calibração.** A floresta leva o Brier de 0,2190 para 0,2146
+e o log loss de 0,6278 para 0,6170 — 2,0% e 1,7% melhores que a persistência. As
+probabilidades são mais confiáveis mesmo ordenando um pouco pior, e é isso que
+importa quando a saída é somada por município para virar uma taxa prevista, em
+vez de usada como ranking de alunos.
+
+**Overfit e underfit, medidos.** Numa amostra de 300 mil alunos por ano, a floresta
+faz AUC 0,698 dentro do treino, 0,653 em validação cruzada e 0,638 em 2025; sem os
+freios de profundidade e folha mínima, sobe para 0,731 no treino e cai para 0,633
+em 2025 — a regularização funciona. A curva de aprendizado é plana: de 30 mil para
+1,85 milhão de alunos de treino, o AUC fora do tempo vai de 0,635 para 0,641. Não
+é underfit: é teto de sinal. E a validação cruzada agrupada por **município** dá o
+mesmo que agrupada por escola (0,654 contra 0,653), então as features territoriais
+não estão sendo usadas para decorar o município.
 
 **O custo de generalizar entre anos é visível:** dentro de 2024 a validação
 cruzada dá AUC entre 0,662 e 0,669 para os três modelos; em 2025 todos caem para
@@ -456,8 +485,9 @@ relatório em `reports/RISCO_MUNICIPAL.md`):
 | *(referência: grão do aluno)* | — | *0,641* |
 
 **É aqui que o aprendizado finalmente vale a pena.** No grão do aluno a floresta
-ganhava da persistência por um milésimo de AUC; no grão do município ela reduz o
-erro da taxa em **2,2 p.p., 18% a menos**. A ordenação empata (AUC 0,750 contra
+perde da persistência por três milésimos de AUC; no grão do município — onde a
+persistência já usa a rede certa — ela reduz o erro da taxa em **2,2 p.p., 18% a
+menos**. A ordenação empata (AUC 0,750 contra
 0,752) — o ganho está em acertar o **nível**, que é o que determina se a barra
 cruza a meta.
 
@@ -553,8 +583,9 @@ Da busca de hiperparâmetros (`reports/OTIMIZACAO.md`) e da auditoria
 ### 1. Quais fatores têm maior impacto na alfabetização?
 
 **O maior fator é a escola, e ele não está na base.** A decomposição de variância
-é inequívoca: escola 14,5%, município 8,3%, UF 3,7%. A escola sozinha explica
-1,7× o município e mais que UF e município somados. No município mediano, a
+é inequívoca: escola 13,5% a 14,5% (conforme o estimador), município 8,1% a 8,3%,
+UF 3,7% a 4,0%. A escola sozinha explica 1,7× o município e mais que UF e
+município somados. No município mediano, a
 melhor e a pior escola diferem 41 p.p. — duas crianças na mesma cidade, sob a
 mesma secretaria e o mesmo orçamento, com realidades separadas por quarenta
 pontos.
@@ -643,7 +674,7 @@ enquanto 86% da variação acontece entre alunos da mesma escola.
   alunos da mesma escola, e os microdados não trazem nenhuma variável de aluno —
   sem sexo, idade, raça ou dados do domicílio. Nenhum algoritmo alcança
   discriminação alta com o que existe.
-- **O nível mais informativo é inacessível.** A escola explica 14,5% da variância,
+- **O nível mais informativo é inacessível.** A escola explica 13,5% a 14,5% da variância,
   mas o código de escola do INEP é mascarado e resorteado a cada ano: não joina
   com Censo Escolar nem com o INSE por escola, e não permite montar histórico.
 - **O enriquecimento disponível é todo municipal** e, por isso, constante dentro
@@ -664,6 +695,15 @@ enquanto 86% da variação acontece entre alunos da mesma escola.
   anterior foi típico.
 - **A probabilidade de descumprir é calibrada nos resíduos do próprio ano
   aferido**, o que a torna otimista quando aplicada a um ano ainda não avaliado.
+- **Duas features de porte são contadas no próprio ano avaliado.**
+  `escola_alunos_avaliados` e `mun_alunos_avaliados` são proxies estruturais com
+  defasagem implícita: o porte muda pouco entre anos, e a projeção de 2026 os
+  carrega de 2025. Não derivam do alvo (correlação −0,013 e −0,047), mas a rigor
+  só se conhecem depois da avaliação; a alternativa limpa é a matrícula do Censo
+  Escolar em t-1, ainda não ingerida.
+- **A meta embute o tempo.** As metas sobem todo ano por desenho, então
+  `mun_meta_ano` é também um relógio. Para 2026 os valores ainda estão dentro do
+  que o modelo viu; para horizontes mais longos, árvores não extrapolam.
 - A base ainda não inclui Censo Escolar agregado, FUNDEB municipal, Censo 2022 do
   IBGE nem Cadastro Único.
 
@@ -673,9 +713,9 @@ O que este projeto entrega a um gestor não é um preditor de criança — é um
 **instrumento de priorização territorial com margem de erro declarada**.
 
 **1. Lista de priorização antes do resultado sair.** A avaliação de um ano é
-divulgada meses depois de aplicada. O ranking de `risco_municipio.parquet` fica
-disponível assim que o ano anterior fecha, com probabilidade e intervalo por
-município. Para uma secretaria estadual que precisa decidir onde colocar
+divulgada meses depois de aplicada. O ranking de
+`data/predictions/risco_2026_projetado.parquet` fica disponível assim que o ano
+anterior fecha, com probabilidade por município. Para uma secretaria estadual que precisa decidir onde colocar
 formação continuada ou material estruturado, antecipar a lista em um ciclo é a
 diferença entre agir no ano da meta e reagir depois dela.
 
@@ -731,7 +771,7 @@ qualquer ganho relevante vem de variável nova, não de algoritmo novo:
   microdado identificado — sem isso, nenhum modelo passa muito de onde está.
 - **Chave de escola estável.** O código do INEP é mascarado e resorteado a cada
   ano, o que impede juntar Censo Escolar, INSE por escola e histórico — no nível
-  que mais explica o resultado (14,5%).
+  que mais explica o resultado (13,5% a 14,5%).
 - **Censo Escolar agregado, FUNDEB municipal, Censo 2022 do IBGE e Cadastro
   Único**, já mapeados e ainda não ingeridos.
 

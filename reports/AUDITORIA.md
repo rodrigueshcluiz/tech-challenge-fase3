@@ -329,7 +329,7 @@ implícita. Dado o sinal quase nulo, remover também seria defensável.
 | 3 | Reler a interpretabilidade como grupos correlacionados | **feito** no README | corrige leitura |
 | 4 | Declarar a escola como 13,5%–14,5% | **feito** no README | rigor |
 | 5 | Registrar que 13,4% do erro é ruído do alvo | **feito** no README | rigor |
-| 6 | Resolver o status de `*_alunos_avaliados` | aberto | coerência de desenho |
+| 6 | Resolver o status de `*_alunos_avaliados` | **feito** — declaradas como proxies de porte com defasagem implícita (`dados.py`, README) | coerência de desenho; troca pelo Censo Escolar fica como evolução |
 | 7 | Não podar features redundantes | — | poda piora, confirmado |
 
 **O resultado mais útil desta auditoria acabou sendo negativo.** As duas
@@ -344,3 +344,23 @@ independente: **o teto é dos dados que faltam — variáveis do aluno e da esco
 não do que se pode extrair melhor dos dados que existem.**
 
 Nada aqui invalida número publicado.
+
+---
+
+## Adendo da revisão final
+
+Uma segunda revisão, feita depois desta auditoria, encontrou um ponto que ela
+não tinha olhado: **o baseline de persistência no grão do aluno usava a taxa da
+rede pública** (`mun_taxa_publica_t1`), enquanto a feature mais forte do modelo é
+a taxa da rede do próprio aluno (`mun_taxa_rede_t1`). Com o baseline justo, a
+coluna sozinha faz AUC 0,6433 em 2025 — acima da floresta (0,6407). A conclusão
+do projeto não muda (o ganho é calibração e grão municipal), mas a frase "a
+floresta supera a persistência por 0,001" foi corrigida no README e em
+`MODELAGEM.md`, que agora publica os dois baselines.
+
+A mesma revisão mediu overfit e underfit numa amostra de 300 mil alunos por ano:
+treino 0,698 / CV 0,653 / 2025 0,638 para a floresta; sem freios, 0,731 / 0,633.
+Curva de aprendizado plana (0,635 → 0,641 de 30 mil a 1,85 milhão). E testou a
+hipótese de que lat/long e as features municipais deixariam a validação cruzada
+por escola decorar o município: CV agrupada por município dá 0,654 contra 0,653
+por escola — refutada.
