@@ -310,7 +310,12 @@ Dois modelos, e dois baselines que existem para dar sentido aos números.
 | **Taxa média** | O piso absoluto. AUC 0,5 por construção. |
 | **Persistência municipal** | Prevê, para cada aluno, a taxa do seu município no ano anterior. Não usa aprendizado nenhum — só uma coluna que já está na tabela. **É contra este que o modelo precisa ser comparado.** |
 | **Regressão logística** | Referência linear. Imputação por mediana, padronização e one-hot, tudo dentro do `Pipeline`. |
-| **Gradient boosting em histograma** | Trata valor faltante nativamente e divide categóricas por conjunto, sem supor ordem. Regularizado com L2 e parada antecipada. |
+| **Random forest** | 200 árvores fundas e independentes, depois a média. Ataca variância. Precisa de imputação e one-hot, não de escala. |
+| **Gradient boosting em histograma** | Árvores rasas encadeadas, cada uma corrigindo a anterior. Ataca viés. Trata valor faltante nativamente e divide categóricas por conjunto. |
+
+Floresta e boosting foram escolhidos por atacarem o erro por caminhos opostos —
+variância contra viés. Se os dois chegam ao mesmo patamar, é evidência de que o
+teto é dos dados, não do algoritmo.
 
 O pré-processamento está **dentro** do `Pipeline`, não antes dele. Isso não é
 estilo: um imputador ajustado fora aprenderia a mediana do conjunto inteiro,
@@ -343,32 +348,42 @@ conhecer um colega é quase conhecer a resposta.
 
 | modelo | AUC | Brier | log loss |
 |---|---:|---:|---:|
-| Persistência municipal | **0,6397** | 0,2193 | 0,6282 |
-| Gradient boosting | 0,6394 | **0,2166** | **0,6211** |
+| **Random forest** | **0,6407** | **0,2146** | **0,6170** |
+| Persistência municipal | 0,6397 | 0,2193 | 0,6282 |
+| Gradient boosting | 0,6394 | 0,2166 | 0,6211 |
 | Regressão logística | 0,6322 | 0,2209 | 0,6319 |
 | Taxa média | 0,5000 | 0,2297 | 0,6521 |
 
-**O modelo não supera a persistência territorial em discriminação.** Empata:
-0,6394 contra 0,6397. Em termos de ordenar alunos por risco, o gradient boosting
-não aprendeu nada além do que já estava na coluna "taxa do município no ano
-passado".
+**A floresta supera a persistência territorial — por 0,001 de AUC.** Tecnicamente
+é o melhor modelo; na prática, ganhar um milésimo de um baseline que não aprende
+nada significa que **o aprendizado de máquina quase não acrescenta discriminação
+aqui**. O boosting empata (0,6394) e a logística perde. Três algoritmos
+diferentes chegando ao mesmo patamar é o que se espera quando o limite é dos
+dados, não do método.
 
-**Onde ele ganha é em calibração.** Brier 0,2166 contra 0,2193 e log loss 0,6211
-contra 0,6282. As probabilidades do modelo são mais confiáveis, mesmo ordenando
-igual — o que importa se a saída alimentar uma decisão de alocação de recurso,
-e não apenas um ranking.
+**O ganho real é em calibração.** A floresta leva o Brier de 0,2193 para 0,2146
+e o log loss de 0,6282 para 0,6170 — uma melhora de 2,1% e 1,8% sobre a
+persistência, ordens de grandeza acima do ganho em AUC. As probabilidades são
+mais confiáveis mesmo ordenando quase igual, o que importa se a saída alimentar
+alocação de recurso em vez de só um ranking.
 
 **O custo de generalizar entre anos é visível:** dentro de 2024 a validação
-cruzada dá AUC 0,6688; em 2025 cai para 0,6394. Essa diferença de 0,03 é a
-distância entre prever o presente e prever o futuro, e só aparece porque a
-divisão é temporal. Uma divisão aleatória teria escondido.
+cruzada dá AUC entre 0,662 e 0,669 para os três modelos; em 2025 todos caem para
+a faixa de 0,632 a 0,641. Essa perda de cerca de 0,03 é a distância entre prever
+o presente e prever o futuro, e só aparece porque a divisão é temporal. Uma
+divisão aleatória a teria escondido.
 
-**A importância confirma o diagnóstico.** Por permutação, `mun_taxa_rede_t1`
-domina (queda de 0,064 no AUC ao ser embaralhada), seguida de longe por
-`sigla_uf` (0,017). Todo o resto fica abaixo de 0,003 — inclusive o INSE. O SHAP
-distribui um pouco mais o crédito (região, taxa da UF, porte da escola), mas a
-conclusão é a mesma: **o modelo é, essencialmente, um mapa de onde a criança
+**A importância confirma o diagnóstico.** Na floresta, `mun_taxa_rede_t1` lidera
+a permutação (0,0120), seguida de `mun_meta_ano` (0,0058) e
+`mun_taxa_publica_t1` (0,0041) — todas medidas do próprio território no passado.
+O SHAP ordena igual. O INSE e as taxas de rendimento aparecem, mas com
+contribuição marginal. **O modelo é, essencialmente, um mapa de onde a criança
 mora.**
+
+Vale notar o contraste entre os dois modelos de árvore: o boosting concentrou
+quase toda a importância numa variável (0,064 em `mun_taxa_rede_t1`), enquanto a
+floresta distribuiu (0,012 no topo). Mesma performance, leituras diferentes — a
+floresta é mais informativa para explicar o fenômeno.
 
 ## Insights encontrados
 
