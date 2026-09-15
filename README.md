@@ -181,7 +181,7 @@ tech-challenge-fase3
 │   ├── raw/          fontes oficiais do INEP (não versionadas)
 │   ├── external/     dimensões territoriais do IBGE
 │   └── gold/         saída do pipeline (.parquet)
-├── notebooks/        análise exploratória
+├── notebooks/        análise exploratória (script em células `# %%`)
 ├── tests/            testes das regras de negócio
 ├── src
 │   ├── config.py     caminhos, domínios oficiais, constantes
@@ -290,7 +290,7 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
 
 *A preencher conforme o desenvolvimento.*
 
-- [ ] Análise exploratória
+- [x] Análise exploratória — `notebooks/01_analise_exploratoria.py`, relatório em `reports/EDA.md`
 - [ ] Engenharia de atributos
 - [ ] Pipeline Scikit-learn com imputação, transformação e encoding integrados
 - [x] Tratamento de data leakage — contexto territorial defasado em `aluno_features`
@@ -315,7 +315,23 @@ nos dois sentidos. Ver a seção da base acima.
 
 ## Insights encontrados
 
-*A preencher.*
+Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
+
+1. **A escola explica 14,5% da variância do alvo** — mais que município (8,3%) e
+   UF (3,7%) somados. É o nível mais informativo e o único que não podemos
+   enriquecer, porque o código de escola do INEP é mascarado e resorteado a cada
+   ano. No município mediano, a melhor e a pior escola diferem **41 p.p.**
+2. **86% da variação acontece entre alunos da mesma escola**, e a fonte não traz
+   nenhuma variável de aluno. O teto do modelo é da fonte, não da modelagem.
+3. **O INSE parece irrelevante e não é**: +0,02 no grão do aluno, +0,14 no
+   município, +0,16 dentro da UF. A diluição é consequência direta do item 2.
+4. **Persistência territorial domina**: a taxa do município em t-1 correlaciona
+   +0,71 com o resultado. O melhor preditor de onde um município estará é onde
+   ele estava.
+5. **O salto de 59,2% para 65,7% entre 2024 e 2025 é real**, não composição — a
+   diferença se mantém com o conjunto de UFs fixo.
+6. **A desigualdade regional não segue o eixo econômico**: Sudeste (64,7%) abaixo
+   do Nordeste (66,0%), com o Centro-Oeste liderando (73,8%).
 
 ## Limitações do projeto
 
