@@ -182,6 +182,7 @@ tech-challenge-fase3
 │   ├── external/     dimensões territoriais do IBGE
 │   └── gold/         saída do pipeline (.parquet)
 ├── notebooks/        análise exploratória
+├── tests/            testes das regras de negócio
 ├── src
 │   ├── config.py     caminhos, domínios oficiais, constantes
 │   ├── utils.py      funções compartilhadas
@@ -224,6 +225,26 @@ Por isso o valor vigente é sempre o da divulgação mais recente; a mais antiga
 o substitui quando as duas concordam dentro de 0,5 p.p., aí é o mesmo alvo com
 mais casas decimais. A coluna `meta_publicacao` registra qual divulgação forneceu
 cada valor. Hoje: 37.499 metas municipais vêm de 2023, 674 de 2024 e 161 de 2025.
+
+## Testes
+
+```bash
+./.venv/bin/pytest
+```
+
+31 testes sobre as regras que, se mudarem em silêncio, invalidam a Gold inteira:
+domínio e composição dos escopos de rede, corte de alfabetização e as faixas em
+torno dele, leitura e consolidação das metas, chave determinística, arredondamento
+compatível com Spark, e a defasagem temporal da `aluno_features`.
+
+O caso central é o **guarda de regressão do código de rede**. O erro da Fase 2 —
+rotular o código 5 como "privada" quando ele é a rede pública — atravessou painel,
+KPIs e vídeo sem nenhum alarme disparar. Reintroduzir esse erro hoje quebra a
+suíte imediatamente (verificado por mutação: dois testes falham).
+
+Os testes cobrem funções puras e rodam em menos de meio segundo, sem depender dos
+arquivos do INEP. São complementares ao `RELATORIO_VALIDACAO.md`, que valida os
+dados a cada execução: um verifica a regra, o outro verifica o resultado.
 
 ## Correções em relação à Fase 2
 

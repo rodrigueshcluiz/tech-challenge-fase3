@@ -24,3 +24,6 @@ reports/RELATORIO_VALIDACAO.md
 .DS_Store
 .vscode/
 .idea/
+
+# Testes
+.pytest_cache/
