@@ -41,14 +41,48 @@ Medi o ganho potencial, prevendo a taxa municipal de 2025 a partir do contexto d
 | **taxa + 9 níveis** | **0,5042** |
 | taxa + média + 9 níveis | 0,5062 |
 
-**+0,029 de R², 6,2% de melhora relativa**, com dado oficial que já está na pasta.
-É o achado mais acionável desta auditoria.
+**+0,029 de R², 6,2% de melhora relativa** num modelo linear no grão do município.
+
+> **Atualização após implementar — leia antes de agir sobre este achado.** As nove
+> colunas foram ingeridas e estão na Gold (`indicador_municipio` e `resumo_uf`),
+> mas **não são utilizáveis como feature hoje**: a divulgação de **2023 não as
+> publica**. Como o contexto é defasado, as linhas de 2024 — o ano de treino —
+> ficariam inteiramente nulas, e `features_utilizaveis` as descartaria pelo mesmo
+> motivo que já descarta `mun_variacao_publica_t1`. Elas entram em uso quando o
+> treino puder incluir 2025, ou seja, no ciclo de 2026.
+>
+> Eu não verifiquei a cobertura por ano antes de escrever a recomendação. Era o
+> primeiro teste a fazer.
 
 ### Achado 1.2 — `media_portugues` está na Gold e não vira feature
 
 A média de proficiência do município em t-1 é lida, chega à Gold em
-`indicador_municipio.media_portugues` e **não aparece em `aluno_features`**.
-Custo de incluir: um join que já existe. Ganho isolado: +0,0065 de R² acima.
+`indicador_municipio.media_portugues` e não aparecia em `aluno_features`. Ganho
+isolado no teste linear municipal: +0,0065 de R².
+
+> **Atualização após implementar: a recomendação estava errada.** Implementei,
+> testei em base completa, e a feature **piora** o modelo:
+>
+> | conjunto | aluno: AUC | aluno: Brier | município: MAE | município: AUC |
+> |---|---:|---:|---:|---:|
+> | sem a média | **0,6407** | **0,2146** | **10,20 p.p.** | 0,7496 |
+> | com a média | 0,6395 | 0,2149 | 10,34 p.p. | 0,7502 |
+>
+> O motivo é o mesmo do achado 5.1: `mun_media_lp_t1` correlaciona **0,930** com
+> `mun_taxa_rede_t1` e carrega **menos** sinal sobre o alvo (0,225 contra 0,239).
+> É uma cópia degradada. Numa floresta com `max_features="sqrt"`, acrescentá-la
+> dilui o sorteio de variáveis a cada divisão e reduz a diversidade entre árvores
+> — exatamente o mecanismo pelo qual a configuração ajustada da busca, com
+> `max_features=0.5`, generalizou pior (ver `OTIMIZACAO.md`).
+>
+> A coluna **fica em `aluno_features`** para análise, e **fora de `NUMERICAS`**.
+>
+> A lição vale para o achado 1.1: o ganho de +0,029 de R² foi medido num modelo
+> **linear** no grão do município, onde a média e a distribuição acrescentam o que
+> uma função linear da taxa não expressa. Uma floresta já captura essa não
+> linearidade a partir da própria taxa. **Dado oficial a mais não é
+> automaticamente modelo melhor** — e é preciso testar no modelo de destino, não
+> num proxy linear.
 
 ### O que corretamente ficou de fora
 
@@ -288,15 +322,25 @@ implícita. Dado o sinal quase nulo, remover também seria defensável.
 
 ## Resumo das recomendações
 
-| # | recomendação | esforço | impacto medido |
+| # | recomendação | situação | resultado |
 |---|---|---|---|
-| 1 | Ingerir `PC_ALUNO_NIVEL_0..8` como contexto de t-1 | médio | **+0,029 R²** municipal |
-| 2 | Usar `media_portugues` de t-1 como feature | baixo | +0,0065 R² |
-| 3 | Reler a interpretabilidade como grupos correlacionados | baixo | corrige leitura |
-| 4 | Declarar a escola como 13,5%–14,5% conforme o estimador | baixo | rigor |
-| 5 | Registrar que 13,4% do erro é ruído do alvo | baixo | rigor |
-| 6 | Resolver o status de `*_alunos_avaliados` | baixo | coerência |
-| 7 | Não podar features redundantes | — | poda piora |
+| 1 | Ingerir `PC_ALUNO_NIVEL_0..8` | **feito na Gold** | inutilizável como feature até 2026 (2023 não publica) |
+| 2 | Usar `media_portugues` de t-1 como feature | **testado e rejeitado** | piora AUC e Brier |
+| 3 | Reler a interpretabilidade como grupos correlacionados | **feito** no README | corrige leitura |
+| 4 | Declarar a escola como 13,5%–14,5% | **feito** no README | rigor |
+| 5 | Registrar que 13,4% do erro é ruído do alvo | **feito** no README | rigor |
+| 6 | Resolver o status de `*_alunos_avaliados` | aberto | coerência de desenho |
+| 7 | Não podar features redundantes | — | poda piora, confirmado |
 
-Nada aqui invalida número publicado. As recomendações 1 e 2 são as únicas que
-mudariam resultados, e mudariam para melhor.
+**O resultado mais útil desta auditoria acabou sendo negativo.** As duas
+recomendações que prometiam melhorar o modelo não se sustentaram quando
+implementadas e testadas: uma esbarra numa lacuna da fonte em 2023, a outra piora
+o desempenho por redundância. Ambas pareciam boas medidas num proxy linear no
+grão do município, e nenhuma sobreviveu ao modelo real.
+
+Isso converge com a busca de hiperparâmetros (`OTIMIZACAO.md`), que também não
+moveu o número, e reforça a tese central do projeto por um terceiro caminho
+independente: **o teto é dos dados que faltam — variáveis do aluno e da escola —,
+não do que se pode extrair melhor dos dados que existem.**
+
+Nada aqui invalida número publicado.

@@ -69,6 +69,10 @@ oficiais incompatíveis.
 Tipos legíveis sem conversão por Spark, DuckDB, Polars e pandas: texto `string`,
 inteiros `int64`, decimais `double`, datas `timestamp[us, UTC]`.
 
+**O contrato de cada tabela — grão, colunas, unidades, garantias e ressalvas —
+está em [`CONTRACT.md`](CONTRACT.md).** Leia antes de consumir a Gold: o domínio
+de rede e o escopo das metas são os dois pontos em que o erro é silencioso.
+
 ### `aluno_features` — a base de treino
 
 Uma linha por aluno avaliado em **2024 e 2025** (3,8 milhões). 2023 não entra como
@@ -215,8 +219,9 @@ tech-challenge-fase3
 │   ├── modeling/     dados · pipeline · agregação municipal · projeção
 │   ├── evaluation/   validação da Gold e métricas de modelo
 │   └── visualization/
-├── reports/          validação, modelagem, risco municipal, manifesto
+├── reports/          validação, modelagem, risco municipal, auditoria, manifesto
 ├── images/
+├── CONTRACT.md       contrato de dados da Gold: grão, tipos, garantias
 ├── gerar_gold.py         pipeline de dados
 ├── otimizar_modelo.py    busca de hiperparâmetros
 ├── treinar_modelo.py     modelagem no grão do aluno

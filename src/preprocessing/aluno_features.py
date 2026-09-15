@@ -55,8 +55,12 @@ def _contexto_defasado(gold: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]
     resumo = gold["resumo_uf"]
     evo_uf = gold["evolucao_uf"]
 
-    mun_rede = (ind[["ano", "id_municipio", "rede", "taxa_alfabetizacao"]]
-                .rename(columns={"taxa_alfabetizacao": "mun_taxa_rede_t1"})
+    # A média de proficiência acompanha a taxa: a taxa conta quantos cruzaram o
+    # corte, a média diz o quão longe dele o município está. Dois territórios em
+    # 50% com médias de 700 e 735 têm perspectivas diferentes para o ano seguinte.
+    mun_rede = (ind[["ano", "id_municipio", "rede", "taxa_alfabetizacao", "media_portugues"]]
+                .rename(columns={"taxa_alfabetizacao": "mun_taxa_rede_t1",
+                                 "media_portugues": "mun_media_lp_t1"})
                 .assign(ano=lambda d: d.ano + 1))
 
     mun_publica = (ind[ind.rede == REDE_META_UF]
@@ -184,7 +188,8 @@ def construir_aluno_features(raw: Path, gold: dict[str, pd.DataFrame], dim_uf, d
 
     for c in ("capital",):
         alunos[c] = alunos[c].astype("Int8")
-    for c in ("latitude", "longitude", "mun_taxa_rede_t1", "mun_taxa_publica_t1",
+    for c in ("latitude", "longitude", "mun_taxa_rede_t1", "mun_media_lp_t1",
+              "mun_taxa_publica_t1",
               "mun_variacao_publica_t1", "uf_taxa_publica_t1", "uf_variacao_publica_t1",
               "mun_meta_ano", "uf_meta_ano", "mun_inse_media", "mun_inse_pct_vulneravel",
               "mun_aprovacao_1ano_t1", "mun_aprovacao_2ano_t1",
@@ -195,7 +200,8 @@ def construir_aluno_features(raw: Path, gold: dict[str, pd.DataFrame], dim_uf, d
     colunas = ["ano", "id_aluno", "id_escola_ano", "id_municipio", "sigla_uf", "regiao",
                "capital", "latitude", "longitude", "rede", "rede_label",
                "escola_alunos_avaliados", "mun_alunos_avaliados",
-               "mun_taxa_rede_t1", "mun_taxa_publica_t1", "mun_nivel_t1",
+               "mun_taxa_rede_t1", "mun_media_lp_t1",
+               "mun_taxa_publica_t1", "mun_nivel_t1",
                "mun_variacao_publica_t1", "mun_meta_ano",
                "uf_taxa_publica_t1", "uf_variacao_publica_t1", "uf_meta_ano",
                "mun_inse_media", "mun_inse_pct_vulneravel", "mun_inse_alunos",

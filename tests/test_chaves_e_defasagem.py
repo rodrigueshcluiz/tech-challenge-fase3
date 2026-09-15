@@ -47,8 +47,8 @@ class TestDefasagemTemporal:
     def gold(self):
         def mun(ano, taxa):
             return {"ano": ano, "id_municipio": "3550308", "rede": 5,
-                    "taxa_alfabetizacao": taxa, "nivel_alfabetizacao": 4,
-                    "variacao_absoluta": 0.02}
+                    "taxa_alfabetizacao": taxa, "media_portugues": 700 + 100 * taxa,
+                    "nivel_alfabetizacao": 4, "variacao_absoluta": 0.02}
 
         def uf(ano, taxa):
             return {"ano": ano, "sigla_uf": "SP", "rede": 5,

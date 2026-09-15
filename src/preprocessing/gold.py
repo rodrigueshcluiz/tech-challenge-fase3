@@ -16,7 +16,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.config import MARTS, REDE_MAP, REDE_META_MUNICIPIO, REDE_META_UF
+from src.config import (
+    COLUNAS_NIVEL, MARTS, REDE_MAP, REDE_META_MUNICIPIO, REDE_META_UF,
+)
 from src.preprocessing.silver import compor_escopos
 from src.report import Relatorio
 from src.utils import puro, round_half_up
@@ -91,11 +93,14 @@ def construir_gold(aprovados: pd.DataFrame, faixas: pd.DataFrame,
 
     # --- 1. indicador por município ----------------------------------------
     chave = COLUNAS_UF + COLUNAS_MUN + ["nivel_alfabetizacao"] + COLUNAS_REDE
+    # A distribuição pelos nove níveis acompanha a taxa em todo agregado: é ela
+    # que distingue dois territórios com a mesma taxa e perspectivas diferentes.
+    niveis = {d: (d, "mean") for d in COLUNAS_NIVEL.values()}
     gold["indicador_municipio"] = (
         por_grao["municipio"].groupby(chave, dropna=False, as_index=False)
         .agg(taxa_alfabetizacao=("taxa_alfabetizacao", "mean"),
              media_portugues=("media_portugues", "mean"),
-             updated_at=("processed_at", "max"))
+             updated_at=("processed_at", "max"), **niveis)
         .sort_values(["ano", "sigla_uf", "id_municipio", "rede"]).reset_index(drop=True))
 
     # --- 2. resumo por UF ---------------------------------------------------
@@ -105,7 +110,7 @@ def construir_gold(aprovados: pd.DataFrame, faixas: pd.DataFrame,
                    alunos_taxa_ponderada=("alunos_taxa_ponderada", "mean"),
                    alunos_proficiencia_media=("alunos_proficiencia_media", "mean"),
                    alunos_amostra=("alunos_amostra", "max"),
-                   updated_at=("processed_at", "max")))
+                   updated_at=("processed_at", "max"), **niveis))
     # Cobertura: municípios da UF com medição. Métrica de alcance do pipeline,
     # não entra no cálculo da taxa.
     cobertura = (por_grao["municipio"]

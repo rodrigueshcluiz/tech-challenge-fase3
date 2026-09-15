@@ -104,6 +104,15 @@ COLUNAS_ALUNO = ["NU_ANO_AVALIACAO", "SG_UF", "CO_MUNICIPIO", "ID_ALUNO", "TP_SE
                  "TP_DEPENDENCIA", "ID_ESCOLA", "CO_CADERNO_LP", "VL_PESO_ALUNO_LP",
                  "VL_PROFICIENCIA_LP", "IN_ALFABETIZADO", "IN_PRESENCA_LP"]
 
+# Distribuição oficial dos alunos pelos nove níveis de proficiência, publicada em
+# TS_ESTADO e TS_MUNICIPIO. A taxa de alfabetização é um resumo dela: dois
+# municípios com a mesma taxa podem ter distribuições muito diferentes, e o que
+# tem massa logo abaixo do corte tem muito mais chance de cruzá-lo no ano
+# seguinte. Medido: +0,029 de R² na projeção municipal (ver reports/AUDITORIA.md).
+N_NIVEIS_PROFICIENCIA = 9
+COLUNAS_NIVEL = {f"PC_ALUNO_NIVEL_{i}_LP": f"pc_nivel_{i}"
+                 for i in range(N_NIVEIS_PROFICIENCIA)}
+
 # Faixas do histograma de proficiência. `faixa_label` não é derivável de
 # `faixa_pontos`: o corte de 743 cai dentro do bloco 725–749.
 FAIXAS = [(650, "1 · Abaixo de 650"), (700, "2 · 650 a 699"),

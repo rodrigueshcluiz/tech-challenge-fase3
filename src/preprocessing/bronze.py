@@ -14,8 +14,8 @@ import pandas as pd
 
 from src.config import (
     ABA_MUNICIPIO, ABA_UF, ALFABETIZACAO_CORTE, ANO_META_MAX, ANO_META_MIN,
-    COLUNAS_ALUNO, DIM_MUNICIPIO, DIM_UF, MICRODADOS, PRECEDENCIA_META,
-    PUBLICACOES_META, REDE_MAP,
+    COLUNAS_ALUNO, COLUNAS_NIVEL, DIM_MUNICIPIO, DIM_UF, MICRODADOS,
+    PRECEDENCIA_META, PUBLICACOES_META, REDE_MAP,
 )
 from src.report import Relatorio
 from src.utils import faixa_label, ler_do_zip, numero, puro
@@ -166,6 +166,9 @@ def ler_fatos(raw: Path, rel: Relatorio) -> tuple[pd.DataFrame, pd.DataFrame]:
             "taxa_alfabetizacao": pd.to_numeric(d.PC_ALUNO_ALFABETIZADO, errors="coerce"),
             "media_portugues": pd.to_numeric(d.VL_MEDIA_LP, errors="coerce"),
         })
+        # A distribuição pelos nove níveis, que a taxa resume e por isso perde.
+        for origem, destino in COLUNAS_NIVEL.items():
+            saida[destino] = pd.to_numeric(d.get(origem), errors="coerce")
         if com_municipio:
             saida["id_municipio"] = d.CO_MUNICIPIO.str.strip().str.zfill(7)
         return saida
@@ -189,6 +192,15 @@ def ler_fatos(raw: Path, rel: Relatorio) -> tuple[pd.DataFrame, pd.DataFrame]:
         rel.check(f"taxa de {nome} em escala 0–100",
                   bool(df.taxa_alfabetizacao.dropna().between(0, 100).all()),
                   f"min={df.taxa_alfabetizacao.min():.2f} max={df.taxa_alfabetizacao.max():.2f}")
+        # Os nove níveis particionam os alunos: se não somam 100%, ou faltou uma
+        # coluna na leitura ou o recorte publicado não é o que supomos.
+        destinos = list(COLUNAS_NIVEL.values())
+        soma = df[destinos].sum(axis=1)
+        completos = df[destinos].notna().all(axis=1)
+        fora = int((completos & ~soma.between(99.5, 100.5)).sum())
+        rel.check(f"níveis de proficiência de {nome} somam 100%", fora == 0,
+                  f"{int(completos.sum()):,} linhas completas, {fora:,} fora da faixa "
+                  f"99,5–100,5 | soma mediana {soma[completos].median():.2f}")
     return fatos_uf, fatos_mun
 
 

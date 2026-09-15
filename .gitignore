@@ -10,11 +10,11 @@ __pycache__/
 data/raw/*
 !data/raw/README.md
 
-# Saída do pipeline — gerada por `python gerar_gold.py`
+# Saída do pipeline — gerada por `python gerar_gold.py`.
+# Os Parquet não vão versionados (são reproduzíveis a partir de data/raw), mas os
+# relatórios vão: quem avalia o projeto lê o repositório, não roda o pipeline.
 data/gold/*
 !data/gold/.gitkeep
-reports/manifest.json
-reports/RELATORIO_VALIDACAO.md
 
 # Saída da modelagem — gerada por `python prever_municipios.py`.
 # O ranking em markdown vai versionado em reports/; o Parquet completo, não.
