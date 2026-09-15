@@ -43,7 +43,7 @@ Toda a base vem de fontes oficiais do INEP, cobrindo **2023, 2024 e 2025**.
 
 ### Camada Gold
 
-Oito marts, **um grão por mart**, em `data/gold`:
+Dez marts, **um grão por mart**, em `data/gold`:
 
 | Mart | Linhas | Grão |
 |---|---:|---|
@@ -51,10 +51,20 @@ Oito marts, **um grão por mart**, em `data/gold`:
 | `resumo_uf` | 225 | ano + UF + rede |
 | `meta_vs_resultado_uf` | 76 | ano + UF *(escopo: rede pública)* |
 | `meta_vs_resultado_municipio` | 16.396 | ano + município *(escopo: rede municipal)* |
+| `metas_uf` | 187 | ano + UF — trajetória 2024–2030 |
+| `metas_municipio` | 38.334 | ano + município — trajetória 2024–2030 |
 | `evolucao_uf` | 225 | ano + UF + rede |
 | `evolucao_municipio` | 36.411 | ano + município + rede |
 | `distribuicao_proficiencia` | 4.837 | ano + UF + rede + faixa |
 | `aluno_features` | 3.817.947 | **ano + aluno** — base de treino do modelo |
+
+**Por que `metas_*` além de `meta_vs_resultado_*`.** Os segundos são a interseção
+entre meta e resultado: só existem para anos já avaliados, e param em 2025. Isso
+basta para prestar contas do passado e não basta para projetar — perguntar quem
+não vai cumprir a meta de 2026 exige ter a meta de 2026, que a interseção
+descarta. Os dois são conferidos um contra o outro nos anos em comum, com
+verificação bloqueante: se divergirem, o projeto estaria publicando dois números
+oficiais incompatíveis.
 
 Tipos legíveis sem conversão por Spark, DuckDB, Polars e pandas: texto `string`,
 inteiros `int64`, decimais `double`, datas `timestamp[us, UTC]`.
@@ -180,7 +190,7 @@ Os dois passos seguintes consomem a Gold e são independentes entre si:
 | comando | o que faz | tempo |
 |---|---|---|
 | `treinar_modelo.py` | treina e compara os três modelos no grão do aluno, com interpretabilidade → `reports/MODELAGEM.md` | ~12 min (`--sem-shap`: ~2 min) |
-| `prever_municipios.py` | projeta a taxa por município e ranqueia risco de não cumprir a meta → `reports/RISCO_MUNICIPAL.md` | ~1 min |
+| `prever_municipios.py` | afere o método contra 2025 e projeta 2026 por município → `reports/RISCO_MUNICIPAL.md` | ~2 min (`--sem-projecao`: ~1 min) |
 
 Ambos aceitam `--amostra N` para iteração rápida (a amostragem é por escola, não
 por aluno, para não quebrar os grupos da validação cruzada).
@@ -201,7 +211,7 @@ tech-challenge-fase3
 │   ├── utils.py      funções compartilhadas
 │   ├── report.py     coleta das verificações
 │   ├── preprocessing/  bronze · silver · quality_gate · gold
-│   ├── modeling/     dados · pipeline · agregação municipal
+│   ├── modeling/     dados · pipeline · agregação municipal · projeção
 │   ├── evaluation/   validação da Gold e métricas de modelo
 │   └── visualization/
 ├── reports/          validação, modelagem, risco municipal, manifesto
@@ -247,12 +257,13 @@ cada valor. Hoje: 37.499 metas municipais vêm de 2023, 674 de 2024 e 161 de 202
 ./.venv/bin/pytest
 ```
 
-45 testes sobre as regras que, se mudarem em silêncio, invalidam o resultado:
+51 testes sobre as regras que, se mudarem em silêncio, invalidam o resultado:
 domínio e composição dos escopos de rede, corte de alfabetização e as faixas em
 torno dele, leitura e consolidação das metas, chave determinística, arredondamento
-compatível com Spark, a defasagem temporal da `aluno_features` e a agregação
-municipal — média ponderada, escopo de rede, classe positiva do risco e
-calibração da probabilidade.
+compatível com Spark, a defasagem temporal da `aluno_features`, a agregação
+municipal (média ponderada, escopo de rede, classe positiva do risco, calibração
+da probabilidade) e o quadro de projeção — que precisa buscar resultado em t-1 e
+meta no ano corrente, erro que não mudaria o formato da saída.
 
 O caso central é o **guarda de regressão do código de rede**. O erro da Fase 2 —
 rotular o código 5 como "privada" quando ele é a rede pública — atravessou painel,
@@ -426,6 +437,33 @@ dos microdados ponderados reproduz o indicador publicado em **99,89% dos 5.500
 municípios** dentro de 0,1 p.p., com diferença mediana de 0,0025 p.p. — o
 arredondamento da própria planilha do INEP.
 
+### Aferir e produzir são dois modelos
+
+`prever_municipios.py` ajusta dois modelos de propósito, e a distinção é o ponto:
+
+| | treino | serve para |
+|---|---|---|
+| **Aferição** | só 2024 | medir o erro contra 2025, que o modelo não viu |
+| **Produção** | 2024 + 2025 | projetar 2026, que ainda não tem gabarito |
+
+A divisão temporal existe para **medir** generalização, não para limitar o que o
+modelo final aprende: descartar metade dos dados na hora de projetar não
+melhoraria previsão nenhuma. Mas sem um ano escondido, qualquer número de
+acurácia seria autoelogio — por isso os dois, e não um só.
+
+O conjunto de features é o mesmo nos dois. Treinar com os dois anos tornaria
+`mun_variacao_publica_t1` utilizável, já que ela é nula apenas em 2024, mas aí a
+margem de erro publicada descreveria um modelo diferente do que gera a projeção.
+
+**Como se projeta um ano sem alunos.** Não existe roteiro de alunos de 2026, mas
+nenhuma feature descreve a criança — são contexto territorial de t-1 e metas do
+ano, e 2025 já fechou. Cada aluno avaliado em 2025 vira uma linha de 2026 com o
+mesmo território, escola e peso, e todo o contexto trocado. A suposição embutida
+é de **composição**: a coorte de 2026 se parece com a de 2025 em porte de escola
+e distribuição de pesos. Há verificação automática de que o contexto foi de fato
+reescrito — um merge que falhasse em silêncio repetiria o ano anterior sem mudar
+o formato da saída.
+
 ## Insights encontrados
 
 Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
@@ -510,16 +548,24 @@ fixada para 2030 (acima de 80%).
 
 ### 4. É possível prever quais municípios não atingirão as metas?
 
-**Sim, com utilidade real e limite declarado.** Treinando em 2024 e projetando
-2025 — sem nenhuma informação do ano avaliado — o modelo acerta a taxa municipal
-com erro médio de 10,2 p.p. e separa quem cumpre de quem não cumpre com AUC
-0,750. Contra repetir o ano anterior, reduz o erro em 18%.
+**Sim, com utilidade real e limite declarado — e o projeto entrega as duas
+coisas: a aferição do método e a previsão de 2026.**
+
+Aferindo contra 2025 (treino só em 2024, sem nenhuma informação do ano avaliado),
+o modelo acerta a taxa municipal com erro médio de 10,2 p.p. e separa quem cumpre
+de quem não cumpre com AUC 0,750 — 18% menos erro que repetir o ano anterior.
+
+Com o modelo de produção, reajustado em 2024+2025, **1.039 de 4.972 municípios
+(20,9%) são projetados abaixo da meta de 2026** — contra 27,9% que de fato
+ficaram abaixo em 2025. A lista completa está em
+`data/predictions/risco_2026_projetado.parquet`.
 
 O limite é honesto: **a ordenação empata com a persistência territorial**
 (AUC 0,750 contra 0,752). O ganho está em acertar o nível, não em descobrir quem
 está em risco — a taxa do ano passado já dizia isso. E nenhum modelo treinado em
 t-1 antecipou o salto de +7,4 p.p. da rede municipal em 2025; o modelo capturou
-45% dele, pela meta, e errou o resto para baixo.
+45% dele, pela meta, e errou o resto para baixo. Como o viés é para baixo, os
+20,9% de 2026 são um teto pessimista.
 
 ### 5. Quais variáveis mais influenciam o desempenho do modelo?
 
@@ -559,6 +605,12 @@ enquanto 86% da variação acontece entre alunos da mesma escola.
   o primeiro da série e não tem contexto anterior. Com um ano de treino e um de
   teste, não há como estimar deriva entre anos nem validar em mais de um ponto no
   tempo — a próxima safra resolve isso.
+- **A projeção de 2026 não tem como ser validada hoje.** A escolha de treinar o
+  modelo de produção com 2024+2025 é principiada, não medida: testar alternativas
+  (só 2025, ou peso maior no ano recente) exigiria um 2026 que ainda não existe.
+- **A projeção supõe composição estável.** O quadro de 2026 reaproveita o roteiro
+  de alunos de 2025; município que fechar escolas, crescer muito ou migrar alunos
+  entre redes destoa por um motivo que não é do modelo.
 - **O modelo não antecipa mudança de nível.** Capturou 45% do salto de +7,4 p.p.
   de 2025 e subestimou o resto, e um choque em t-1 (o caso do Rio Grande do Sul)
   é herdado como se fosse estrutura. Toda projeção aqui pressupõe que o ano
@@ -602,6 +654,21 @@ série e contamina toda a projeção do estado. Um painel que monitore variaçã
 atípica por UF sinaliza que aquele ano não deve ser lido como tendência. Vale
 para qualquer choque — climático, sanitário, administrativo.
 
+**5. Meta descalibrada depois de um choque: o caso do Rio Grande do Sul.** Esse
+mesmo caso produz o achado mais acionável do projeto. A trajetória de metas do RS
+foi calibrada sobre o patamar de 2023 (63,5%), anterior ao choque. O estado caiu
+para 44,2% em 2024, recuperou para 52,1% em 2025 — e a meta mediana de 2026
+continua em **75,9%, acima da mediana nacional de 69,4%**. Para o município
+gaúcho mediano, cumpri-la exigiria **+13,6 p.p. em um ano**, contra um avanço
+mediano nacional de +7,8 p.p. entre 2024 e 2025.
+
+Por isso **280 dos 299 municípios gaúchos (93,6%) aparecem projetados abaixo da
+meta** — sozinhos, 27% de todos os municípios em risco do país. Não é previsão de
+má gestão: é meta incompatível com a trajetória, nunca repactuada depois do
+desastre. É o tipo de conclusão que um ranking sem leitura de contexto
+transformaria numa lista de culpados — e é insumo direto de negociação
+federativa.
+
 **O que este projeto não autoriza:** nenhuma decisão sobre uma criança
 específica. Com AUC 0,64 no grão do aluno e 86% da variância dentro da escola,
 usar isto para triagem individual seria estatisticamente indefensável e
@@ -626,6 +693,14 @@ salto nacional e perde o resto); intervalo de predição por reamostragem em vez
 aproximação normal por estrato; e um modelo direto no grão do município, que
 hoje é obtido por agregação — vale medir se treinar nesse grão supera agregar a
 predição individual.
+
+**Validação, quando 2026 sair.** Com três anos o desenho correto passa a ser
+**origem rolante**: treina 2024 → testa 2025, treina 2024+2025 → testa 2026. Isso
+dá duas medições em vez de uma, uma estimativa de dispersão do erro fora do tempo
+que hoje não existe, e — o mais importante — permite **conferir a projeção de
+2026 contra o resultado**, fechando o ciclo que este projeto só pode abrir. Dá
+também um ano de validação separado, para ajustar hiperparâmetro sem contaminar o
+teste (hoje os da floresta são fixos por critério estrutural, não otimizados).
 
 **Engenharia.** Persistir o modelo treinado para separar treino de inferência;
 versionar os artefatos de predição junto ao manifesto da Gold; e reexecutar o

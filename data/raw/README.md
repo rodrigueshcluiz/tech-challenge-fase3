@@ -35,15 +35,14 @@ Quatro arquivos adicionais, também do INEP, usados por `aluno_features`:
 | `INSE_2023_municipios.xlsx` | [Indicadores educacionais — INSE](https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/indicadores-educacionais/nivel-socioeconomico) | nível socioeconômico por município e rede |
 | `tx_rend_municipios_2023.zip` | [Indicadores educacionais — taxas de rendimento](https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/indicadores-educacionais/taxas-de-rendimento-escolar) | aprovação, reprovação e abandono |
 | `tx_rend_municipios_2024.zip` | idem | idem |
+| `tx_rend_municipios_2025.zip` | idem | idem |
 
 O INSE sai a cada dois anos junto com o SAEB; 2023 é a safra mais recente e entra
 como característica estrutural, sem defasagem. As taxas de rendimento entram
-defasadas em um ano, como todo indicador de resultado: as de 2023 alimentam 2024
-e as de 2024 alimentam 2025.
-
-`tx_rend_municipios_2025.zip` pode estar presente na pasta e **não é lido** — por
-coerência com a defasagem, ele só passa a valer quando houver avaliação de 2026.
-Para ativá-lo, basta acrescentá-lo a `TAXAS_RENDIMENTO` em `src/config.py`.
+defasadas em um ano, como todo indicador de resultado: as de 2023 alimentam 2024,
+as de 2024 alimentam 2025 e as de 2025 compõem o contexto da **projeção de
+2026** — estas últimas não encontram aluno em `aluno_features`, porque a
+avaliação de 2026 ainda não ocorreu, e existem só para `prever_municipios.py`.
 
 ## Dimensões territoriais
 

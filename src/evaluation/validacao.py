@@ -24,6 +24,8 @@ GRAOS = {
     "resumo_uf": ["ano", "sigla_uf", "rede"],
     "meta_vs_resultado_uf": ["ano", "sigla_uf"],
     "meta_vs_resultado_municipio": ["ano", "id_municipio"],
+    "metas_uf": ["ano", "sigla_uf"],
+    "metas_municipio": ["ano", "id_municipio"],
     "evolucao_uf": ["ano", "sigla_uf", "rede"],
     "evolucao_municipio": ["ano", "id_municipio", "rede"],
     "distribuicao_proficiencia": ["ano", "sigla_uf", "rede", "faixa_pontos", "faixa_label"],
@@ -37,6 +39,29 @@ def validar_gold(gold, aprovados, alunos_por_dep, raw: Path, rel: Relatorio) -> 
         dup = int(gold[mart].duplicated(chave).sum())
         rel.check(f"gold.{mart} — grão único em {' + '.join(chave)}", dup == 0,
                   f"{dup:,} duplicadas")
+
+    # A trajetória de metas e a interseção meta×resultado saem da mesma fonte por
+    # caminhos diferentes. Se divergirem, uma das duas está errada — e como a
+    # projeção usa a trajetória e o relatório usa a interseção, o projeto passaria
+    # a publicar dois números oficiais incompatíveis.
+    for trajetoria, interseccao, chave in (
+            ("metas_uf", "meta_vs_resultado_uf", "sigla_uf"),
+            ("metas_municipio", "meta_vs_resultado_municipio", "id_municipio")):
+        conf = (gold[trajetoria][["ano", chave, "meta_taxa"]]
+                .merge(gold[interseccao][["ano", chave, "meta_taxa"]],
+                       on=["ano", chave], how="inner", suffixes=("_traj", "_inter")))
+        conf = conf.dropna(subset=["meta_taxa_traj", "meta_taxa_inter"])
+        diverge = int((conf.meta_taxa_traj - conf.meta_taxa_inter).abs().gt(1e-9).sum())
+        rel.check(f"{trajetoria} concorda com {interseccao} nos anos em comum",
+                  diverge == 0,
+                  f"{len(conf):,} chaves conferidas, {diverge:,} divergentes")
+
+    for mart, anos_exigidos in (("metas_uf", {2026}), ("metas_municipio", {2026})):
+        anos = set(gold[mart].ano.unique())
+        rel.check(f"{mart} cobre anos ainda não avaliados",
+                  anos_exigidos.issubset(anos),
+                  f"anos {puro(sorted(anos))} — a projeção precisa da meta do ano "
+                  f"seguinte ao último avaliado")
 
     rel.check("meta_vs_resultado_uf não contém grão municipal",
               "id_municipio" not in gold["meta_vs_resultado_uf"].columns)

@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 """Projeta a taxa de alfabetização por município e sinaliza risco de não cumprir a meta.
 
-Treina em 2024 e projeta 2025 — a mesma divisão temporal da modelagem, porque a
-pergunta é a mesma feita um ano antes: *com o que se sabia até o fim de 2024,
-quais municípios não chegariam à meta de 2025?*
+Duas fases, com modelos diferentes de propósito — a distinção entre **aferir** e
+**produzir** é o ponto do script:
+
+1. **Aferição (2024 → 2025).** Treina só em 2024 e confere contra 2025, que o
+   modelo não viu. É o que dá direito a publicar uma margem de erro: sem um ano
+   escondido, qualquer número de acurácia é autoelogio.
+2. **Produção (2024+2025 → 2026).** Reajusta com tudo que existe e projeta o ano
+   seguinte, que ainda não tem gabarito. Descartar metade dos dados no modelo
+   final não melhoraria previsão nenhuma; a divisão temporal existe para medir,
+   não para limitar o que o modelo final aprende.
+
+O conjunto de features é o mesmo nas duas, fixado pelo que a divisão temporal
+validou. Treinar com os dois anos tornaria `mun_variacao_publica_t1` utilizável
+(ela é nula só em 2024), mas aí a métrica publicada descreveria um modelo
+diferente do que gera a projeção.
 
 Rode depois de `gerar_gold.py`:
 
     python prever_municipios.py [--amostra N] [--modelo floresta|boosting|logistica]
+                                [--sem-projecao]
 
-Escreve `data/predictions/risco_municipio.parquet`, o relatório em
-`reports/RISCO_MUNICIPAL.md` e as figuras em `images/`.
+Escreve `data/predictions/*.parquet`, o relatório em `reports/RISCO_MUNICIPAL.md`
+e as figuras em `images/`.
 """
 from __future__ import annotations
 
@@ -21,9 +34,12 @@ import time
 import numpy as np
 import pandas as pd
 
-from src.config import DIR_GOLD, DIR_REPORTS, RAIZ, REDE_META_MUNICIPIO
+from src.config import DIR_GOLD, DIR_RAW, DIR_REPORTS, MARTS, RAIZ, REDE_META_MUNICIPIO
+from src.report import Relatorio
 from src.utils import markdown_tabela
-from src.modeling.dados import ANO_TESTE, ANO_TREINO, carregar, features_utilizaveis
+from src.modeling.dados import (
+    ANO_TESTE, ANO_TREINO, features_utilizaveis, ler_base, recortar, unir,
+)
 from src.modeling.municipio import (
     MINIMO_ALUNOS, TOLERANCIA_MART, agregar, calibracao_do_risco,
     conferir_contra_mart, desvio_por_porte, diagnostico_de_deriva, erro_por_uf,
@@ -31,6 +47,7 @@ from src.modeling.municipio import (
     ranking_de_risco,
 )
 from src.modeling.pipeline import MODELOS, SEMENTE
+from src.modeling.projecao import montar_quadro
 from src.visualization.estilo import (
     SERIE, TINTA, TINTA_2, TINTA_3, aplicar_estilo, milhar, num, pct, salvar, titular,
 )
@@ -40,11 +57,15 @@ import matplotlib.pyplot as plt
 DIR_IMAGENS = RAIZ / "images"
 DIR_PREDICOES = RAIZ / "data" / "predictions"
 TOPO_RANKING = 40
+ANO_PROJECAO = ANO_TESTE + 1
 
 
 def _tabela_ranking(d: pd.DataFrame) -> pd.DataFrame:
-    """Formata o ranking para leitura: percentual com uma casa, vírgula decimal."""
-    return pd.DataFrame({
+    """Formata o ranking para leitura: percentual com uma casa, vírgula decimal.
+
+    `observada` só existe na aferição; na projeção a coluna não tem o que trazer.
+    """
+    colunas = {
         "uf": d.sigla_uf.to_numpy(),
         "alunos": [milhar(int(v)) for v in d.alunos_avaliados],
         "taxa t-1": [pct(v) for v in d.taxa_t1],
@@ -52,8 +73,73 @@ def _tabela_ranking(d: pd.DataFrame) -> pd.DataFrame:
         "prevista": [pct(v) for v in d.taxa_prevista],
         "gap previsto": [num(v * 100, 1, sinal=True) for v in d.gap_previsto],
         "risco": [pct(v, 0) for v in d.probabilidade_descumprir],
-        "observada": [pct(v) for v in d.taxa_observada],
-    }, index=pd.Index(d.nome_municipio, name="município"))
+    }
+    if "taxa_observada" in d.columns:
+        colunas["observada"] = [pct(v) for v in d.taxa_observada]
+    return pd.DataFrame(colunas, index=pd.Index(d.nome_municipio, name="município"))
+
+
+def _projetar(base, treino, teste, numericas, categoricas, desvios, nome_modelo, rel):
+    """Fase 2: reajusta com todos os anos e projeta o ano seguinte ao último avaliado.
+
+    Devolve `(ranking, agregado, sigma)` ou `None` se faltar meta publicada para o
+    ano — caso em que não há contra o que comparar e projetar seria inventar.
+    """
+    print(f"\n[2/2] Produção — reajustando {nome_modelo} em "
+          f"{ANO_TREINO}+{ANO_TESTE} para projetar {ANO_PROJECAO}")
+    gold = {m: pd.read_parquet(DIR_GOLD / f"{m}.parquet")
+            for m in MARTS if m != "aluno_features"}
+    if ANO_PROJECAO not in set(gold["metas_municipio"].ano):
+        print(f"  sem meta publicada para {ANO_PROJECAO} em metas_municipio.",
+              file=sys.stderr)
+        return None
+
+    completo = unir(treino, teste)
+    inicio = time.perf_counter()
+    modelo = MODELOS[nome_modelo](numericas, categoricas)
+    modelo.fit(completo.X, completo.y, modelo__sample_weight=completo.peso)
+    print(f"  fit em {len(completo):,} alunos: {time.perf_counter() - inicio:.1f}s")
+
+    quadro = montar_quadro(gold, base[base.ano == ANO_TESTE], DIR_RAW, ANO_PROJECAO, rel)
+    if rel.falhas:
+        return None
+
+    prob = modelo.predict_proba(quadro.X)[:, 1]
+    agregado = agregar(quadro.contexto, prob, quadro.peso)
+    d = agregado[agregado.meta_taxa.notna() & agregado.taxa_t1.notna()
+                 & (agregado.alunos_avaliados >= MINIMO_ALUNOS)].copy()
+
+    # O σ vem da aferição: é a única medida de erro que existe, e usá-la aqui é
+    # supor que o modelo erra em 2026 como errou em 2025.
+    sigma_reserva = float(desvios.desvio_do_erro.max())
+    d["probabilidade_descumprir"] = probabilidade_de_descumprir(
+        d, desvios, sigma_padrao=sigma_reserva)
+
+    nomes = (gold["metas_municipio"].query("ano == @ANO_PROJECAO")
+             [["id_municipio", "nome_municipio"]].drop_duplicates("id_municipio"))
+    ranking = ranking_de_risco(d, nomes)
+    arquivo = DIR_PREDICOES / f"risco_{ANO_PROJECAO}_projetado.parquet"
+    DIR_PREDICOES.mkdir(parents=True, exist_ok=True)
+    ranking.to_parquet(arquivo, index=False)
+    print(f"  projeção: {arquivo} ({len(ranking):,} municípios)")
+
+    em_risco = int((d.taxa_prevista < d.meta_taxa).sum())
+    print(f"  {em_risco:,} de {len(d):,} municípios ({em_risco / len(d):.1%}) "
+          f"projetados abaixo da meta de {ANO_PROJECAO}")
+
+    # Onde o risco se concentra. Um estado inteiro no topo é sinal de meta
+    # descalibrada com a trajetória, não de má gestão de cada município dele.
+    por_uf = (d.assign(_abaixo=d.taxa_prevista < d.meta_taxa)
+              .groupby("sigla_uf")
+              .agg(municipios=("id_municipio", "size"),
+                   projetados_abaixo=("_abaixo", "sum"),
+                   proporcao=("_abaixo", "mean"),
+                   taxa_t1_mediana=("taxa_t1", "median"),
+                   meta_mediana=("meta_taxa", "median"))
+              .sort_values("proporcao", ascending=False).reset_index())
+    print(por_uf.head(5).round(3).to_string(index=False))
+    return {"ranking": ranking, "agregado": d, "em_risco": em_risco, "por_uf": por_uf,
+            "alunos_treino": len(completo), "sigma": sigma_reserva}
 
 
 def main() -> int:
@@ -62,16 +148,21 @@ def main() -> int:
                         help="limita as linhas por ano (amostragem por escola)")
     parser.add_argument("--modelo", default="floresta", choices=sorted(MODELOS),
                         help="modelo a projetar (padrão: o melhor da avaliação)")
+    parser.add_argument("--sem-projecao", action="store_true",
+                        help=f"só a aferição {ANO_TREINO}→{ANO_TESTE}, sem projetar "
+                             f"{ANO_PROJECAO}")
     args = parser.parse_args()
 
     aplicar_estilo()
+    rel = Relatorio()
     print(f"Carregando aluno_features{f' (amostra de {args.amostra:,}/ano)' if args.amostra else ''}")
-    treino, teste = carregar(amostra=args.amostra, semente=SEMENTE)
+    base = ler_base(amostra=args.amostra, semente=SEMENTE)
+    treino, teste = recortar(base, ANO_TREINO), recortar(base, ANO_TESTE)
     numericas, categoricas, descartadas = features_utilizaveis(treino)
     print(f"  treino {ANO_TREINO}: {len(treino):,} alunos | "
           f"teste {ANO_TESTE}: {len(teste):,} alunos")
 
-    print(f"\nTreinando {args.modelo} em {ANO_TREINO}")
+    print(f"\n[1/2] Aferição — treinando {args.modelo} só em {ANO_TREINO}")
     inicio = time.perf_counter()
     modelo = MODELOS[args.modelo](numericas, categoricas)
     modelo.fit(treino.X, treino.y, modelo__sample_weight=treino.peso)
@@ -80,7 +171,7 @@ def main() -> int:
 
     # --- agregação para o grão da decisão -----------------------------------
     print(f"\nAgregando para município × rede municipal (rede {REDE_META_MUNICIPIO})")
-    agregado = agregar(teste.contexto, probabilidade, teste.y, teste.peso)
+    agregado = agregar(teste.contexto, probabilidade, teste.peso, alvo=teste.y)
     print(f"  {len(agregado):,} municípios com rede municipal avaliada em {ANO_TESTE}")
 
     mart = pd.read_parquet(DIR_GOLD / "meta_vs_resultado_municipio.parquet")
@@ -177,9 +268,9 @@ def main() -> int:
              .drop_duplicates("id_municipio"))
     ranking = ranking_de_risco(d, nomes)
     DIR_PREDICOES.mkdir(parents=True, exist_ok=True)
-    arquivo = DIR_PREDICOES / "risco_municipio.parquet"
+    arquivo = DIR_PREDICOES / f"risco_{ANO_TESTE}_aferido.parquet"
     ranking.to_parquet(arquivo, index=False)
-    print(f"\nranking: {arquivo} ({len(ranking):,} municípios)")
+    print(f"\nranking aferido: {arquivo} ({len(ranking):,} municípios)")
 
     calibracao = calibracao_do_risco(d)
     print("\nCalibração do risco declarado")
@@ -189,6 +280,14 @@ def main() -> int:
     acerto_alto = float((alto_risco.gap_observado < 0).mean()) if len(alto_risco) else float("nan")
     print(f"  {len(alto_risco):,} municípios com probabilidade ≥ 80% de descumprir; "
           f"{acerto_alto:.1%} de fato descumpriram")
+
+    # --- fase 2: modelo de produção e projeção do ano seguinte -----------------
+    projecao = None
+    if not args.sem_projecao:
+        projecao = _projetar(base, treino, teste, numericas, categoricas, desvios,
+                             args.modelo, rel)
+        if projecao is None:
+            print("  projeção não gerada; segue só com a aferição.", file=sys.stderr)
 
     # --- figuras ---------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(6.4, 5.2))
@@ -264,8 +363,16 @@ def main() -> int:
     # --- relatório ---------------------------------------------------------------
     ganho_mae = (taxas["persistencia_t1"]["erro_medio_absoluto"]
                  - taxas["modelo"]["erro_medio_absoluto"])
+    # Régua para julgar se uma meta é compatível com a trajetória: quanto o
+    # município mediano de fato avançou no último ano medido.
+    salto_mediano_realizado = float((d.taxa_observada - d.taxa_t1).median())
     linhas = [
         "# Risco municipal — quem não atinge a meta de alfabetização", "",
+        f"Duas partes, com modelos diferentes de propósito: a **Parte 1 afere** o método "
+        f"contra {ANO_TESTE}, que o modelo não viu, e a **Parte 2 projeta** "
+        f"{ANO_PROJECAO} com um modelo reajustado em todos os anos disponíveis. "
+        f"A primeira dá a margem de erro; a segunda usa essa margem.", "",
+        f"# Parte 1 — aferição do método ({ANO_TREINO} → {ANO_TESTE})", "",
         f"Modelo `{args.modelo}` treinado em {ANO_TREINO} e projetado em {ANO_TESTE}, "
         f"agregando a probabilidade de cada aluno para o grão **município × rede "
         f"municipal** — o único em que o INEP publica meta por município. Nenhuma "
@@ -378,12 +485,12 @@ def main() -> int:
         "a taxa prevista é baixa demais, então a probabilidade de ficar abaixo da meta "
         "é alta demais. **Use a ordem, não o valor absoluto** — ou recalibre contra esta "
         "tabela antes de usar o número para dimensionar recurso.", "",
-        f"## Municípios de maior risco (topo de {TOPO_RANKING})", "",
+        f"## Municípios de maior risco em {ANO_TESTE} (topo de {TOPO_RANKING})", "",
         markdown_tabela(_tabela_ranking(ranking.head(TOPO_RANKING)), "município"),
         "",
-        "Taxas em pontos percentuais. `taxa_observada` é a conferência posterior, não "
+        "Taxas em pontos percentuais. `observada` é a conferência posterior, não "
         "entrou na predição — e mostra quantos superaram a projeção. A tabela completa "
-        "fica em `data/predictions/risco_municipio.parquet`.", "",
+        f"fica em `data/predictions/risco_{ANO_TESTE}_aferido.parquet`.", "",
         "## Figuras", "",
         f"![previsto contra observado](../images/{fig_dispersao})", "",
         f"![risco de meta](../images/{fig_risco})", "",
@@ -392,6 +499,88 @@ def main() -> int:
     if descartadas:
         linhas += [f"Features descartadas por serem nulas em {ANO_TREINO}: "
                    f"`{'`, `'.join(descartadas)}`.", ""]
+
+    if projecao:
+        p = projecao
+        pr = p["agregado"]
+        linhas += [
+            "---", "",
+            f"# Parte 2 — projeção de {ANO_PROJECAO}", "",
+            f"Tudo acima é **aferição**: mede o método contra um ano com gabarito. Esta "
+            f"parte é **previsão**, e não tem contra o que conferir até o INEP divulgar "
+            f"{ANO_PROJECAO}.", "",
+            f"O modelo aqui é outro: reajustado com **{milhar(p['alunos_treino'])} alunos "
+            f"de {ANO_TREINO} e {ANO_TESTE}**, e não só com {ANO_TREINO}. A divisão "
+            f"temporal existe para medir generalização, não para limitar o que o modelo "
+            f"final aprende — descartar metade dos dados na hora de projetar não "
+            f"melhoraria previsão nenhuma. O conjunto de features é o mesmo, para que a "
+            f"margem de erro da Parte 1 continue descrevendo este modelo.", "",
+            "## Como o quadro de features foi montado", "",
+            f"Não existe roteiro de alunos de {ANO_PROJECAO} — a avaliação não ocorreu. "
+            f"Mas **nenhuma feature descreve a criança**: são contexto municipal e "
+            f"estadual de t-1 mais as metas do ano, e {ANO_TESTE} já fechou. Cada aluno "
+            f"avaliado em {ANO_TESTE} vira uma linha de {ANO_PROJECAO} com o mesmo "
+            f"território, escola e peso, e todo o contexto trocado pelo de "
+            f"{ANO_PROJECAO}: indicadores de {ANO_TESTE}, metas de {ANO_PROJECAO} "
+            f"(mart `metas_municipio`) e taxas de rendimento de {ANO_TESTE}.", "",
+            f"**A suposição embutida é de composição**: a coorte de {ANO_PROJECAO} se "
+            f"parece com a de {ANO_TESTE} em porte de escola e distribuição de pesos. "
+            f"Município que fechar escolas, crescer muito ou migrar de rede vai destoar "
+            f"por um motivo que não é do modelo. Há verificação automática de que o "
+            f"contexto foi de fato reescrito — um merge que falhasse em silêncio "
+            f"repetiria o ano anterior sem mudar o formato da saída.", "",
+            "## Resultado", "",
+            f"**{milhar(p['em_risco'])} de {milhar(len(pr))} municípios "
+            f"({pct(p['em_risco'] / len(pr))}) são projetados abaixo da meta de "
+            f"{ANO_PROJECAO}.** A meta mediana do ano é "
+            f"{pct(float(pr.meta_taxa.median()))} e a taxa mediana projetada é "
+            f"{pct(float(pr.taxa_prevista.median()))}.", "",
+            "**Leia esse número com o viés da Parte 1 em mente.** O modelo subestimou "
+            f"{ANO_TESTE} em {num(abs(deriva['vies']) * 100)} p.p., e nada garante que "
+            f"não subestime {ANO_PROJECAO} também — treinar com {ANO_TESTE} junto "
+            "corrige parte disso, mas ancora a previsão entre os dois regimes. Se a alta "
+            "continuar, o número acima é um teto pessimista: a contagem real de "
+            "municípios em risco tende a ser menor.", "",
+            "## Onde o risco se concentra", "",
+            markdown_tabela(p["por_uf"].head(8).round(4).set_index("sigla_uf"),
+                            "sigla_uf"), "",
+        ]
+        pior = p["por_uf"].iloc[0]
+        uf = pior.sigla_uf
+        if uf in serie.index:
+            trajetoria = serie.loc[uf].dropna()
+            salto = pior.meta_mediana - pior.taxa_t1_mediana
+            nacional = float(p["agregado"].meta_taxa.median())
+            linhas += [
+                f"**{uf} responde por {int(pior.projetados_abaixo)} dos "
+                f"{milhar(p['em_risco'])} municípios em risco** — "
+                f"{pct(pior.proporcao)} dos seus. Isso já aparecia na Parte 1, mas "
+                f"por um motivo diferente, e vale separar os dois.", "",
+                f"Lá, o modelo herdava o ano deprimido de {ANO_TREINO} como se fosse "
+                f"estrutura. Aqui ele já viu a recuperação: a rede municipal de {uf} "
+                f"foi a "
+                + " → ".join(f"{pct(v)} em {a}" for a, v in trajetoria.items()) + ". "
+                f"O problema é outro — **a meta não foi repactuada depois do choque**. "
+                f"A meta mediana de {uf} para {ANO_PROJECAO} é "
+                f"{pct(pior.meta_mediana)}, acima da mediana nacional de "
+                f"{pct(nacional)}, porque a trajetória foi calibrada sobre o patamar "
+                f"de {int(trajetoria.index[0])} — que o estado ainda não recuperou. "
+                f"Cumprir exigiria **{num(salto * 100, 1, sinal=True)} p.p. em um ano**, "
+                f"contra um avanço mediano nacional de "
+                f"{num(salto_mediano_realizado * 100, 1, sinal=True)} p.p. entre "
+                f"{ANO_TREINO} e {ANO_TESTE}.", "",
+                f"Não é previsão de má gestão: é meta incompatível com a trajetória. "
+                f"É exatamente o tipo de caso que justifica repactuação, e o tipo de "
+                f"conclusão que um ranking sem leitura de contexto transformaria numa "
+                f"lista de culpados.", "",
+            ]
+        linhas += [
+            f"## Municípios de maior risco em {ANO_PROJECAO} (topo de {TOPO_RANKING})", "",
+            markdown_tabela(_tabela_ranking(p["ranking"].head(TOPO_RANKING)), "município"),
+            "",
+            f"Sem coluna de observado: não existe ainda. A tabela completa fica em "
+            f"`data/predictions/risco_{ANO_PROJECAO}_projetado.parquet`.", "",
+        ]
 
     DIR_REPORTS.mkdir(parents=True, exist_ok=True)
     (DIR_REPORTS / "RISCO_MUNICIPAL.md").write_text("\n".join(linhas), encoding="utf-8")

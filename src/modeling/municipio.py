@@ -47,47 +47,54 @@ def _phi(z):
                                                / math.sqrt(2.0)))
 
 
-def agregar(contexto: pd.DataFrame, probabilidade, alvo, peso,
+def agregar(contexto: pd.DataFrame, probabilidade, peso, alvo=None,
             rede: int = REDE_META_MUNICIPIO) -> pd.DataFrame:
     """Leva a predição do aluno para o grão município × rede municipal.
 
     Devolve, por município: a taxa prevista (média ponderada das probabilidades),
-    a taxa observada (média ponderada do alvo — reconstrói o indicador oficial),
     a taxa do ano anterior, a meta do ano e o tamanho amostral.
+
+    `alvo` é opcional porque a função serve aos dois usos: na aferição existe
+    gabarito e saem também a taxa observada e o erro; numa projeção de ano futuro
+    não existe, e as colunas simplesmente não aparecem — melhor que devolvê-las
+    preenchidas com zero, que alguém acabaria lendo como resultado.
 
     A soma ponderada é feita por coluna auxiliar e não por `apply`: com quase dois
     milhões de linhas, uma função Python por grupo custaria minutos.
     """
     w = np.asarray(peso, dtype="float64")
-    d = contexto.assign(
-        _w=w, _w2=w ** 2,
-        _wp=w * np.asarray(probabilidade, dtype="float64"),
-        _wy=w * np.asarray(alvo, dtype="float64"),
-    )
+    d = contexto.assign(_w=w, _w2=w ** 2,
+                        _wp=w * np.asarray(probabilidade, dtype="float64"))
+    if alvo is not None:
+        d["_wy"] = w * np.asarray(alvo, dtype="float64")
     d = d[d.rede == rede]
     if d.empty:
         raise ValueError(f"nenhum aluno da rede {rede} no conjunto avaliado")
 
-    g = d.groupby("id_municipio", dropna=False)
-    agregado = g.agg(
+    somas = dict(
         sigla_uf=("sigla_uf", "first"),
         # Constantes dentro do grupo: vêm dos marts, no grão do município.
         taxa_t1=("mun_taxa_rede_t1", "first"),
         meta_taxa=("mun_meta_ano", "first"),
         alunos_avaliados=("_w", "size"),
         peso_total=("_w", "sum"), soma_peso2=("_w2", "sum"),
-        soma_wp=("_wp", "sum"), soma_wy=("_wy", "sum"),
-    ).reset_index()
+        soma_wp=("_wp", "sum"),
+    )
+    if alvo is not None:
+        somas["soma_wy"] = ("_wy", "sum")
+    agregado = d.groupby("id_municipio", dropna=False).agg(**somas).reset_index()
 
     agregado["taxa_prevista"] = agregado.soma_wp / agregado.peso_total
-    agregado["taxa_observada"] = agregado.soma_wy / agregado.peso_total
     # Tamanho efetivo de Kish: com pesos desiguais, n linhas não valem n
     # observações independentes. Serve para estratificar a incerteza.
     agregado["alunos_efetivos"] = agregado.peso_total ** 2 / agregado.soma_peso2
-    agregado = agregado.drop(columns=["soma_peso2", "soma_wp", "soma_wy"])
+    agregado = agregado.drop(columns=["soma_peso2", "soma_wp"])
 
-    agregado["erro"] = agregado.taxa_prevista - agregado.taxa_observada
-    agregado["erro_t1"] = agregado.taxa_t1 - agregado.taxa_observada
+    if alvo is not None:
+        agregado["taxa_observada"] = agregado.soma_wy / agregado.peso_total
+        agregado["erro"] = agregado.taxa_prevista - agregado.taxa_observada
+        agregado["erro_t1"] = agregado.taxa_t1 - agregado.taxa_observada
+        agregado = agregado.drop(columns="soma_wy")
     return agregado.sort_values("id_municipio").reset_index(drop=True)
 
 
@@ -187,7 +194,8 @@ def desvio_por_porte(d: pd.DataFrame, n_estratos: int = 4) -> pd.DataFrame:
 
 
 def probabilidade_de_descumprir(d: pd.DataFrame, desvios: pd.DataFrame,
-                                n_estratos: int = 4) -> pd.Series:
+                                n_estratos: int = 4,
+                                sigma_padrao: float | None = None) -> pd.Series:
     """Converte a distância até a meta em probabilidade de não cumpri-la.
 
     Modelo simples e declarado: o erro de predição dentro de cada estrato de
@@ -202,7 +210,11 @@ def probabilidade_de_descumprir(d: pd.DataFrame, desvios: pd.DataFrame,
     d = d.copy()
     d["estrato"] = pd.qcut(d.alunos_efetivos, n_estratos, labels=False, duplicates="drop")
     sigma = d.estrato.map(desvios.set_index("estrato").desvio_do_erro)
-    sigma = sigma.fillna(d.erro.std()).clip(lower=1e-4)
+    # Numa projeção não há resíduo para servir de reserva: o σ tem de vir de
+    # fora, medido no último ano com gabarito.
+    reserva = sigma_padrao if sigma_padrao is not None else (
+        d.erro.std() if "erro" in d.columns else desvios.desvio_do_erro.max())
+    sigma = sigma.fillna(reserva).clip(lower=1e-4)
     return pd.Series(_phi((d.meta_taxa - d.taxa_prevista) / sigma), index=d.index)
 
 
@@ -276,7 +288,10 @@ def ranking_de_risco(d: pd.DataFrame, nomes: pd.DataFrame) -> pd.DataFrame:
     """Tabela final: um município por linha, ordenada por risco."""
     saida = d.merge(nomes, on="id_municipio", how="left")
     saida["gap_previsto"] = saida.taxa_prevista - saida.meta_taxa
-    saida["gap_observado"] = saida.taxa_observada - saida.meta_taxa
+    # Numa projeção de ano futuro não há observado, e a coluna fica de fora em vez
+    # de aparecer vazia.
+    if "taxa_observada" in saida.columns:
+        saida["gap_observado"] = saida.taxa_observada - saida.meta_taxa
     colunas = ["id_municipio", "nome_municipio", "sigla_uf", "alunos_avaliados",
                "taxa_t1", "meta_taxa", "taxa_prevista", "gap_previsto",
                "probabilidade_descumprir", "taxa_observada", "gap_observado", "erro"]

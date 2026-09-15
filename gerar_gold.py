@@ -25,7 +25,7 @@ from src.evaluation.validacao import diagnosticos, validar_gold
 from src.preprocessing.aluno_features import construir_aluno_features
 from src.preprocessing.bronze import ler_dimensoes, ler_fatos, ler_metas, processar_alunos
 from src.preprocessing.enriquecimento import ler_inse, ler_taxas_rendimento
-from src.preprocessing.gold import construir_gold, escrever
+from src.preprocessing.gold import construir_gold, construir_metas, escrever
 from src.preprocessing.quality_gate import quality_gate
 from src.preprocessing.silver import compor_escopos, construir_silver
 from src.report import Relatorio
@@ -82,6 +82,7 @@ def main() -> int:
                                   rel, processed_at)
         aprovados = quality_gate(silver, dim_uf, dim_mun, rel)
         gold = construir_gold(aprovados, alunos_por_faixa, rel)
+        gold |= construir_metas(meta_uf, meta_mun, meta_br, dim_uf, dim_mun, rel)
         gold["aluno_features"] = construir_aluno_features(raw, gold, dim_uf, dim_mun,
                                                           inse, taxas, rel)
         validar_gold(gold, aprovados, alunos_por_dep, raw, rel)

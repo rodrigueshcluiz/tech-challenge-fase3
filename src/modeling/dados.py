@@ -64,7 +64,7 @@ class Conjunto:
         return len(self.y)
 
 
-def _recortar(base: pd.DataFrame, ano: int) -> Conjunto:
+def recortar(base: pd.DataFrame, ano: int) -> Conjunto:
     d = base[base.ano == ano]
     X = d[FEATURES].copy()
     # A categórica precisa ser texto para o OneHot/Ordinal: `capital` é 0/1 mas
@@ -89,21 +89,46 @@ def features_utilizaveis(treino: Conjunto) -> tuple[list[str], list[str]]:
     return [c for c in NUMERICAS if c not in vazias], list(CATEGORICAS), vazias
 
 
-def carregar(amostra: int | None = None, semente: int = 42) -> tuple[Conjunto, Conjunto]:
-    """Devolve (treino de 2024, teste de 2025).
+def unir(*conjuntos: Conjunto) -> Conjunto:
+    """Junta recortes de anos diferentes num único conjunto de treino.
+
+    Serve ao modelo de produção, que não tem por que descartar metade dos dados:
+    a divisão temporal existe para *medir* generalização, não para limitar o que
+    o modelo final aprende. Ver `prever_municipios.py`, que ajusta os dois.
+    """
+    return Conjunto(
+        X=pd.concat([c.X for c in conjuntos], ignore_index=True),
+        y=pd.concat([c.y for c in conjuntos], ignore_index=True),
+        peso=pd.concat([c.peso for c in conjuntos], ignore_index=True),
+        grupo=pd.concat([c.grupo for c in conjuntos], ignore_index=True),
+        contexto=pd.concat([c.contexto for c in conjuntos], ignore_index=True),
+    )
+
+
+def ler_base(amostra: int | None = None, semente: int = 42) -> pd.DataFrame:
+    """A `aluno_features` inteira, opcionalmente amostrada.
 
     `amostra` limita o número de linhas por ano, para iteração rápida. A
     amostragem é por **escola**, não por aluno: sortear alunos soltos quebraria
     os grupos e tornaria a validação agrupada inconsistente.
+
+    Exposta além de `carregar` porque a projeção precisa das colunas cruas — o
+    roteiro de alunos do último ano avaliado serve de molde para o ano seguinte.
     """
     base = pd.read_parquet(DIR_GOLD / "aluno_features.parquet")
-    if amostra:
-        partes = []
-        for ano in (ANO_TREINO, ANO_TESTE):
-            d = base[base.ano == ano]
-            escolas = d[GRUPO].drop_duplicates()
-            fracao = min(1.0, amostra / len(d))
-            sorteadas = escolas.sample(frac=fracao, random_state=semente)
-            partes.append(d[d[GRUPO].isin(set(sorteadas))])
-        base = pd.concat(partes, ignore_index=True)
-    return _recortar(base, ANO_TREINO), _recortar(base, ANO_TESTE)
+    if not amostra:
+        return base
+    partes = []
+    for ano in (ANO_TREINO, ANO_TESTE):
+        d = base[base.ano == ano]
+        escolas = d[GRUPO].drop_duplicates()
+        fracao = min(1.0, amostra / len(d))
+        sorteadas = escolas.sample(frac=fracao, random_state=semente)
+        partes.append(d[d[GRUPO].isin(set(sorteadas))])
+    return pd.concat(partes, ignore_index=True)
+
+
+def carregar(amostra: int | None = None, semente: int = 42) -> tuple[Conjunto, Conjunto]:
+    """Devolve (treino de 2024, teste de 2025)."""
+    base = ler_base(amostra, semente)
+    return recortar(base, ANO_TREINO), recortar(base, ANO_TESTE)

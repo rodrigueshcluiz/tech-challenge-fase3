@@ -1,5 +1,9 @@
 # Risco municipal — quem não atinge a meta de alfabetização
 
+Duas partes, com modelos diferentes de propósito: a **Parte 1 afere** o método contra 2025, que o modelo não viu, e a **Parte 2 projeta** 2026 com um modelo reajustado em todos os anos disponíveis. A primeira dá a margem de erro; a segunda usa essa margem.
+
+# Parte 1 — aferição do método (2024 → 2025)
+
 Modelo `floresta` treinado em 2024 e projetado em 2025, agregando a probabilidade de cada aluno para o grão **município × rede municipal** — o único em que o INEP publica meta por município. Nenhuma informação de 2025 entra na predição: as features são contexto de t-1 e metas publicadas antes da avaliação.
 
 ## Por que agregar muda o problema
@@ -96,7 +100,7 @@ Confrontando a probabilidade declarada com a frequência observada:
 
 **A ordenação funciona, a calibração não.** A frequência de descumprimento cresce monotonicamente de uma faixa para a seguinte — o ranking separa bem. Mas o nível está deslocado em todas elas, pela mesma razão da seção anterior: a taxa prevista é baixa demais, então a probabilidade de ficar abaixo da meta é alta demais. **Use a ordem, não o valor absoluto** — ou recalibre contra esta tabela antes de usar o número para dimensionar recurso.
 
-## Municípios de maior risco (topo de 40)
+## Municípios de maior risco em 2025 (topo de 40)
 
 | município | uf | alunos | taxa t-1 | meta | prevista | gap previsto | risco | observada |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -141,7 +145,7 @@ Confrontando a probabilidade declarada com a frequência observada:
 | Nova Viçosa | BA | 470 | 37,2% | 64,1% | 42,5% | -21,6 | 99% | 64,7% |
 | São Leopoldo | RS | 1.639 | 37,2% | 64,5% | 42,9% | -21,6 | 99% | 40,4% |
 
-Taxas em pontos percentuais. `taxa_observada` é a conferência posterior, não entrou na predição — e mostra quantos superaram a projeção. A tabela completa fica em `data/predictions/risco_municipio.parquet`.
+Taxas em pontos percentuais. `observada` é a conferência posterior, não entrou na predição — e mostra quantos superaram a projeção. A tabela completa fica em `data/predictions/risco_2025_aferido.parquet`.
 
 ## Figuras
 
@@ -152,3 +156,89 @@ Taxas em pontos percentuais. `taxa_observada` é a conferência posterior, não 
 ![viés por UF](../images/10_vies_por_uf.png)
 
 Features descartadas por serem nulas em 2024: `mun_variacao_publica_t1`, `uf_variacao_publica_t1`.
+
+---
+
+# Parte 2 — projeção de 2026
+
+Tudo acima é **aferição**: mede o método contra um ano com gabarito. Esta parte é **previsão**, e não tem contra o que conferir até o INEP divulgar 2026.
+
+O modelo aqui é outro: reajustado com **3.817.947 alunos de 2024 e 2025**, e não só com 2024. A divisão temporal existe para medir generalização, não para limitar o que o modelo final aprende — descartar metade dos dados na hora de projetar não melhoraria previsão nenhuma. O conjunto de features é o mesmo, para que a margem de erro da Parte 1 continue descrevendo este modelo.
+
+## Como o quadro de features foi montado
+
+Não existe roteiro de alunos de 2026 — a avaliação não ocorreu. Mas **nenhuma feature descreve a criança**: são contexto municipal e estadual de t-1 mais as metas do ano, e 2025 já fechou. Cada aluno avaliado em 2025 vira uma linha de 2026 com o mesmo território, escola e peso, e todo o contexto trocado pelo de 2026: indicadores de 2025, metas de 2026 (mart `metas_municipio`) e taxas de rendimento de 2025.
+
+**A suposição embutida é de composição**: a coorte de 2026 se parece com a de 2025 em porte de escola e distribuição de pesos. Município que fechar escolas, crescer muito ou migrar de rede vai destoar por um motivo que não é do modelo. Há verificação automática de que o contexto foi de fato reescrito — um merge que falhasse em silêncio repetiria o ano anterior sem mudar o formato da saída.
+
+## Resultado
+
+**1.039 de 4.972 municípios (20,9%) são projetados abaixo da meta de 2026.** A meta mediana do ano é 69,4% e a taxa mediana projetada é 75,4%.
+
+**Leia esse número com o viés da Parte 1 em mente.** O modelo subestimou 2025 em 6,4 p.p., e nada garante que não subestime 2026 também — treinar com 2025 junto corrige parte disso, mas ancora a previsão entre os dois regimes. Se a alta continuar, o número acima é um teto pessimista: a contagem real de municípios em risco tende a ser menor.
+
+## Onde o risco se concentra
+
+| sigla_uf | municipios | projetados_abaixo | proporcao | taxa_t1_mediana | meta_mediana |
+|---|---:|---:|---:|---:|---:|
+| RS | 299 | 280 | 0,9365 | 0,6232 | 0,7590 |
+| AM | 60 | 36 | 0,6000 | 0,5652 | 0,6172 |
+| SC | 256 | 124 | 0,4844 | 0,7218 | 0,7293 |
+| PA | 143 | 49 | 0,3427 | 0,5948 | 0,6268 |
+| RN | 140 | 42 | 0,3000 | 0,5069 | 0,5644 |
+| SP | 577 | 164 | 0,2842 | 0,6599 | 0,6882 |
+| AP | 16 | 4 | 0,2500 | 0,6444 | 0,5770 |
+| RJ | 92 | 22 | 0,2391 | 0,6446 | 0,6774 |
+
+**RS responde por 280 dos 1.039 municípios em risco** — 93,6% dos seus. Isso já aparecia na Parte 1, mas por um motivo diferente, e vale separar os dois.
+
+Lá, o modelo herdava o ano deprimido de 2024 como se fosse estrutura. Aqui ele já viu a recuperação: a rede municipal de RS foi a 63,5% em 2023 → 44,2% em 2024 → 52,1% em 2025. O problema é outro — **a meta não foi repactuada depois do choque**. A meta mediana de RS para 2026 é 75,9%, acima da mediana nacional de 69,4%, porque a trajetória foi calibrada sobre o patamar de 2023 — que o estado ainda não recuperou. Cumprir exigiria **+13,6 p.p. em um ano**, contra um avanço mediano nacional de +7,8 p.p. entre 2024 e 2025.
+
+Não é previsão de má gestão: é meta incompatível com a trajetória. É exatamente o tipo de caso que justifica repactuação, e o tipo de conclusão que um ranking sem leitura de contexto transformaria numa lista de culpados.
+
+## Municípios de maior risco em 2026 (topo de 40)
+
+| município | uf | alunos | taxa t-1 | meta | prevista | gap previsto | risco |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Osório | RS | 287 | 46,4% | 73,5% | 53,3% | -20,2 | 99% |
+| Canguçu | RS | 318 | 59,1% | 79,8% | 60,2% | -19,6 | 99% |
+| São Sepé | RS | 111 | 30,2% | 80,0% | 54,4% | -25,6 | 98% |
+| Balneário Pinhal | RS | 174 | 31,9% | 68,7% | 45,7% | -23,0 | 98% |
+| Rio Grande | RS | 1.138 | 35,7% | 66,6% | 47,3% | -19,3 | 98% |
+| Gravataí | RS | 2.078 | 46,0% | 71,4% | 52,2% | -19,2 | 98% |
+| Passo Fundo | RS | 1.169 | 39,3% | 68,8% | 49,9% | -18,9 | 98% |
+| Tramandaí | RS | 548 | 42,5% | 66,7% | 47,8% | -18,9 | 98% |
+| São Leopoldo | RS | 1.639 | 40,4% | 68,0% | 49,5% | -18,5 | 98% |
+| Viamão | RS | 2.107 | 41,0% | 69,0% | 50,9% | -18,0 | 98% |
+| Alvorada | RS | 1.568 | 40,5% | 62,6% | 44,7% | -17,9 | 98% |
+| São Gabriel | RS | 358 | 44,2% | 70,1% | 52,4% | -17,7 | 98% |
+| Triunfo | RS | 296 | 48,6% | 73,0% | 55,3% | -17,7 | 98% |
+| Canoas | RS | 2.010 | 41,9% | 66,1% | 48,9% | -17,2 | 97% |
+| São Lourenço do Sul | RS | 287 | 59,2% | 79,5% | 62,8% | -16,7 | 97% |
+| São Jerônimo | RS | 44 | 48,9% | 80,0% | 56,2% | -23,8 | 97% |
+| Santa Maria | RS | 1.194 | 47,9% | 72,2% | 56,1% | -16,1 | 96% |
+| Imbé | RS | 272 | 45,5% | 72,6% | 53,4% | -19,2 | 96% |
+| Sapiranga | RS | 746 | 57,8% | 76,1% | 60,0% | -16,1 | 96% |
+| Cachoeirinha | RS | 934 | 46,4% | 68,6% | 52,5% | -16,0 | 96% |
+| Marau | RS | 297 | 47,1% | 72,9% | 57,1% | -15,8 | 96% |
+| Canela | RS | 340 | 47,3% | 79,3% | 63,6% | -15,6 | 96% |
+| Bento Gonçalves | RS | 746 | 69,7% | 78,5% | 63,0% | -15,6 | 96% |
+| São Gonçalo do Amarante | RN | 694 | 37,4% | 65,6% | 50,5% | -15,1 | 95% |
+| Novo Hamburgo | RS | 1.984 | 46,8% | 70,7% | 55,6% | -15,1 | 95% |
+| São Borja | RS | 368 | 45,5% | 72,3% | 57,2% | -15,0 | 95% |
+| Charqueadas | RS | 216 | 43,8% | 71,4% | 53,8% | -17,7 | 95% |
+| Porto Alegre | RS | 2.677 | 26,7% | 59,0% | 44,2% | -14,7 | 95% |
+| Bagé | RS | 661 | 51,2% | 70,6% | 55,9% | -14,6 | 95% |
+| Guaíba | RS | 832 | 41,2% | 64,3% | 49,8% | -14,5 | 95% |
+| Cidreira | RS | 145 | 29,9% | 60,6% | 43,6% | -17,0 | 94% |
+| Palmares do Sul | RS | 85 | 40,8% | 66,2% | 47,7% | -18,6 | 94% |
+| Caxias do Sul | RS | 2.796 | 52,9% | 74,2% | 60,3% | -13,9 | 94% |
+| Pelotas | RS | 1.367 | 29,2% | 54,4% | 40,5% | -13,9 | 94% |
+| Montenegro | RS | 343 | 48,6% | 72,5% | 58,7% | -13,8 | 94% |
+| São José do Norte | RS | 193 | 35,5% | 66,5% | 49,9% | -16,5 | 94% |
+| Capão do Leão | RS | 265 | 32,6% | 63,7% | 47,7% | -16,0 | 93% |
+| Extremoz | RN | 679 | 38,8% | 63,4% | 50,1% | -13,3 | 93% |
+| Sentinela do Sul | RS | 62 | 49,7% | 76,6% | 57,7% | -18,9 | 93% |
+| Cerrito | RS | 30 | 53,7% | 77,3% | 58,4% | -18,9 | 93% |
+
+Sem coluna de observado: não existe ainda. A tabela completa fica em `data/predictions/risco_2026_projetado.parquet`.

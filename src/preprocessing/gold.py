@@ -19,11 +19,68 @@ import pyarrow.parquet as pq
 from src.config import MARTS, REDE_MAP, REDE_META_MUNICIPIO, REDE_META_UF
 from src.preprocessing.silver import compor_escopos
 from src.report import Relatorio
-from src.utils import round_half_up
+from src.utils import puro, round_half_up
 
 COLUNAS_UF = ["ano", "sigla_uf", "nome_uf", "regiao"]
 COLUNAS_MUN = ["id_municipio", "nome_municipio", "capital", "latitude", "longitude"]
 COLUNAS_REDE = ["rede", "rede_label", "fonte_dados"]
+
+
+def construir_metas(meta_uf: pd.DataFrame, meta_mun: pd.DataFrame, meta_br: pd.DataFrame,
+                    dim_uf: pd.DataFrame, dim_mun: pd.DataFrame,
+                    rel: Relatorio) -> dict[str, pd.DataFrame]:
+    """Trajetória oficial de metas, 2024–2030, independente de haver resultado.
+
+    Os marts `meta_vs_resultado_*` são a interseção entre meta e resultado: só
+    existem para anos já avaliados. Isso basta para prestar contas do passado e
+    não basta para projetar — para perguntar quem não vai cumprir a meta de 2026
+    é preciso ter a meta de 2026, que a interseção descarta.
+
+    Um mart separado, e não uma coluna a mais no outro, porque o grão é diferente:
+    aqui há uma linha por território e ano de meta, incluindo anos sem avaliação.
+    """
+    def montar(metas, chave, territorio, escopo, rotulo):
+        d = (metas.rename(columns={"meta": "meta_taxa"})
+             .merge(territorio, on=chave, how="left")
+             .merge(meta_br, on="ano", how="left"))
+        d["meta_origem"] = pd.Series("inep_compromisso_nacional", index=d.index,
+                                     dtype="string")
+        d["meta_escopo"] = pd.Series(escopo, index=d.index, dtype="string")
+        d["fonte_dados"] = pd.Series("oficial_inep", index=d.index, dtype="string")
+        d["meta_publicacao"] = d.meta_publicacao.astype("Int64")
+        rel.check(f"metas de {rotulo} — grão único em ano + {chave}",
+                  not d.duplicated(["ano", chave]).any(),
+                  f"{len(d):,} linhas | anos {puro(sorted(d.ano.unique()))} | "
+                  f"{d[chave].nunique():,} territórios")
+        return d.sort_values(["ano", chave]).reset_index(drop=True)
+
+    metas_uf = montar(
+        meta_uf, "sigla_uf",
+        dim_uf[["sigla_uf", "nome_uf", "regiao"]], "rede_publica", "UF")
+    metas_municipio = montar(
+        meta_mun, "id_municipio",
+        # A dimensão nomeia a UF como `sigla_uf_dim` para não colidir no join com
+        # os fatos; aqui não há fato, então ela é a própria UF do município.
+        dim_mun.rename(columns={"sigla_uf_dim": "sigla_uf"}),
+        "rede_municipal", "município")
+    metas_municipio = metas_municipio.merge(
+        dim_uf[["sigla_uf", "regiao"]], on="sigla_uf", how="left")
+
+    # Um município sem dimensão territorial não pode entrar num ranking: não tem
+    # nome, UF nem coordenada. Vale saber quantos são.
+    orfaos = int(metas_municipio.nome_municipio.isna().sum())
+    rel.check("metas de município casam com a dimensão territorial do IBGE",
+              orfaos == 0, f"{orfaos:,} sem correspondência", bloqueante=False)
+
+    return {"metas_uf": metas_uf[
+                ["ano", "sigla_uf", "nome_uf", "regiao", "meta_taxa", "meta_limiar",
+                 "meta_brasil", "meta_origem", "meta_escopo", "meta_publicacao",
+                 "fonte_dados"]],
+            "metas_municipio": metas_municipio[
+                ["ano", "id_municipio", "nome_municipio", "sigla_uf", "regiao",
+                 "capital", "latitude", "longitude", "meta_taxa", "meta_limiar",
+                 "meta_brasil", "meta_origem", "meta_escopo", "meta_publicacao",
+                 "fonte_dados"]]}
 
 
 def construir_gold(aprovados: pd.DataFrame, faixas: pd.DataFrame,

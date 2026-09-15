@@ -45,7 +45,7 @@ class TestAgregacao:
 
     def test_um_municipio_por_linha(self):
         d = contexto([3] * 4, ["1", "1", "2", "2"], [1.0] * 4)
-        saida = agregar(d, [0.1, 0.3, 0.7, 0.9], [0, 0, 1, 1], d.peso_amostral)
+        saida = agregar(d, [0.1, 0.3, 0.7, 0.9], d.peso_amostral, alvo=[0, 0, 1, 1])
         assert saida.id_municipio.tolist() == ["1", "2"]
         assert saida.taxa_prevista.tolist() == pytest.approx([0.2, 0.8])
 
@@ -53,16 +53,27 @@ class TestAgregacao:
         """Devolver um quadro vazio faria o relatório sair com zero municípios."""
         d = contexto([2, 4], ["1", "1"], [1.0, 1.0])
         with pytest.raises(ValueError):
-            agregar(d, [0.5, 0.5], [1, 0], d.peso_amostral)
+            agregar(d, [0.5, 0.5], d.peso_amostral, alvo=[1, 0])
 
     def test_tamanho_efetivo_cai_quando_os_pesos_sao_desiguais(self):
         """Com pesos muito desiguais, n linhas não valem n observações."""
         iguais = contexto([3] * 4, ["1"] * 4, [1.0] * 4)
         desiguais = contexto([3] * 4, ["1"] * 4, [1.0, 1.0, 1.0, 97.0])
-        n_iguais = agregar(iguais, [0.5] * 4, [1] * 4, iguais.peso_amostral)
-        n_desiguais = agregar(desiguais, [0.5] * 4, [1] * 4, desiguais.peso_amostral)
+        n_iguais = agregar(iguais, [0.5] * 4, iguais.peso_amostral, alvo=[1] * 4)
+        n_desiguais = agregar(desiguais, [0.5] * 4, desiguais.peso_amostral, alvo=[1] * 4)
         assert n_iguais.alunos_efetivos.iloc[0] == pytest.approx(4.0)
         assert n_desiguais.alunos_efetivos.iloc[0] < 1.5
+
+    def test_sem_alvo_nao_inventa_colunas_de_resultado(self):
+        """Numa projeção de ano futuro, taxa observada e erro não existem.
+
+        Devolvê-las zeradas seria pior que omiti-las: alguém leria zero como
+        resultado medido.
+        """
+        d = contexto([3, 3], ["1", "1"], [1.0, 3.0])
+        saida = agregar(d, probabilidade=[0.2, 0.6], peso=d.peso_amostral)
+        assert saida.taxa_prevista.iloc[0] == pytest.approx(0.5)
+        assert not {"taxa_observada", "erro", "erro_t1"} & set(saida.columns)
 
 
 class TestProvaContraOMart:

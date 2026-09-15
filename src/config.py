@@ -90,8 +90,12 @@ ABA_MUNICIPIO = "Divulgação Alfabet Municipio"
 # Enriquecimento municipal (INEP). O INSE sai a cada dois anos junto com o SAEB;
 # 2023 é a safra mais recente e entra como característica estrutural.
 ARQUIVO_INSE = "INSE_2023_municipios.xlsx"
+# As taxas entram defasadas em um ano: as de 2023 alimentam 2024. A safra de 2025
+# não encontra aluno em `aluno_features` (não há avaliação de 2026) e existe aqui
+# para compor o contexto da projeção.
 TAXAS_RENDIMENTO = {2023: "tx_rend_municipios_2023.zip",
-                    2024: "tx_rend_municipios_2024.zip"}
+                    2024: "tx_rend_municipios_2024.zip",
+                    2025: "tx_rend_municipios_2025.zip"}
 
 DIM_UF = "uf.csv"
 DIM_MUNICIPIO = "municipio.csv"
@@ -112,6 +116,11 @@ MARTS = [
     "resumo_uf",
     "meta_vs_resultado_uf",
     "meta_vs_resultado_municipio",
+    # Trajetória completa das metas, 2024–2030. Os marts `meta_vs_resultado_*`
+    # são a interseção com o resultado e por isso param no último ano avaliado;
+    # projetar um ano futuro exige a meta desse ano.
+    "metas_uf",
+    "metas_municipio",
     "evolucao_uf",
     "evolucao_municipio",
     "distribuicao_proficiencia",
