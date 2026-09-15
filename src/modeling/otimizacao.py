@@ -124,14 +124,25 @@ def resumir(nome: str, busca: RandomizedSearchCV, score_padrao: float,
     )
 
 
-def adotar(busca: Busca, ganho_minimo: float = 0.0) -> dict:
+# Quantos desvios entre folds o ganho precisa superar para ser considerado real.
+#
+# Começou em 1 e foi para 2 depois da primeira execução completa. Com 1, a
+# floresta foi adotada por ganhar +0,0017 contra desvio de 0,0013 — e fora do
+# tempo essa configuração ficou **pior** que o padrão (0,6407 → 0,6381). Um ganho
+# de pouco mais de um desvio não é ajuste fino: é a variação entre folds sendo
+# lida como sinal, e ela não sobrevive à virada de ano. Ver `reports/OTIMIZACAO.md`.
+DESVIOS_PARA_ADOTAR = 2.0
+
+
+def adotar(busca: Busca, ganho_minimo: float = 0.0,
+           desvios: float = DESVIOS_PARA_ADOTAR) -> dict:
     """Devolve a configuração a usar: a ajustada só se ela realmente ganhou.
 
     Trocar o padrão por uma configuração que empata dentro do ruído entre folds
-    não é ajuste fino, é escolher barulho. O critério é ganhar mais que o desvio
-    observado entre os folds da própria busca.
+    não é ajuste fino, é escolher barulho. O critério é ganhar mais que dois
+    desvios observados entre os folds da própria busca.
     """
-    limiar = max(ganho_minimo, busca.desvio_melhor)
+    limiar = max(ganho_minimo, desvios * busca.desvio_melhor)
     if busca.score_melhor - busca.score_padrao > limiar:
         return busca.melhor_config
     return {}

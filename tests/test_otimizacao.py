@@ -27,6 +27,17 @@ class TestAdocao:
         """0,002 de ganho com 0,004 de desvio entre folds não é ganho."""
         assert adotar(busca(0.662, 0.660, 0.004)) == {}
 
+    def test_um_desvio_de_ganho_nao_basta(self):
+        """O caso real da floresta: +0,0017 contra desvio de 0,0013.
+
+        Com o limiar antigo de um desvio, essa configuração foi adotada — e fora
+        do tempo ficou pior que o padrão. É o teste que fixa a lição.
+        """
+        assert adotar(busca(0.6687, 0.6670, 0.0013)) == {}
+
+    def test_dois_desvios_de_ganho_bastam(self):
+        assert adotar(busca(0.6700, 0.6670, 0.0013)) == {"max_depth": 10}
+
     def test_mantem_o_padrao_quando_a_busca_piora(self):
         assert adotar(busca(0.650, 0.660, 0.001)) == {}
 
