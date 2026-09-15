@@ -358,9 +358,47 @@ do projeto não muda (o ganho é calibração e grão municipal), mas a frase "a
 floresta supera a persistência por 0,001" foi corrigida no README e em
 `MODELAGEM.md`, que agora publica os dois baselines.
 
+### O peso amostral como feature — medido e recusado
+
+`peso_amostral` entra no treino como `sample_weight` e nunca como feature. A
+pergunta natural é quanto se perde com isso. Medido na base completa:
+
+| | aluno: AUC | aluno: Brier | município: MAE | município: AUC do risco |
+|---|---:|---:|---:|---:|
+| sem o peso (atual) | 0,6407 | 0,2146 | 10,20 p.p. | 0,7496 |
+| com o peso verdadeiro do ano | 0,6450 | 0,2138 | 10,06 p.p. | 0,7518 |
+| com o peso carregado de t-1 | 0,6425 | 0,2145 | 10,17 p.p. | 0,7530 |
+
+A linha do meio é o maior ganho já medido neste projeto: +0,0043 de AUC no grão
+do aluno, mais que qualquer busca de hiperparâmetro ou feature nova. Mas ela
+descreve um regime que não existe em produção. **A projeção de 2026 não tem o
+peso de 2026** — o quadro carrega o de 2025, e o peso médio municipal
+correlaciona apenas **0,208** entre anos consecutivos. A terceira linha simula
+esse regime, e o ganho no número principal desaparece: o erro médio municipal
+volta de 10,06 para 10,17 p.p., contra 10,20 sem a feature.
+
+Três razões para não adotar, além dessa:
+
+1. O peso é calculado pelo INEP **depois da avaliação**, para a amostra
+   efetivamente avaliada. Não é conhecido antes da prova, que é o critério que
+   o projeto aplica a todas as outras features.
+2. Ele já é usado duas vezes: como `sample_weight` no ajuste e como peso na
+   agregação municipal. Fazer a probabilidade depender dele transforma a taxa
+   agregada numa média ponderada de uma função dos próprios pesos, o que
+   desarma o estimador que hoje reproduz o indicador publicado em 99,89% dos
+   municípios.
+3. A correlação com o alvo é de −0,066, maior em módulo que a das duas features
+   de porte, e sem interpretação causal disponível: o dicionário da AEEB
+   descreve a coluna apenas como "peso do aluno na prova".
+
+O ganho que sobrevive ao regime honesto é de 0,0034 de AUC no risco municipal,
+com o erro médio parado. Não compensa introduzir um artefato pós-avaliação no
+conjunto de features.
+
 A mesma revisão mediu overfit e underfit numa amostra de 300 mil alunos por ano:
 treino 0,698 / CV 0,653 / 2025 0,638 para a floresta; sem freios, 0,731 / 0,633.
 Curva de aprendizado plana (0,635 → 0,641 de 30 mil a 1,85 milhão). E testou a
 hipótese de que lat/long e as features municipais deixariam a validação cruzada
 por escola decorar o município: CV agrupada por município dá 0,654 contra 0,653
-por escola — refutada.
+por escola — refutada. Tirar as coordenadas do conjunto leva o AUC de 0,6407
+para 0,6404 e o Brier de 0,2146 para 0,2147: elas não contribuem nem atrapalham.

@@ -4,14 +4,14 @@ Treino em 2024 (1.851.852 alunos, 42.328 escolas), teste em 2025 (1.966.095 alun
 
 ## Resultados
 
-| modelo | auc_roc | precisao_media | brier | log_loss | taxa_base |
-|---|---:|---:|---:|---:|---:|
-| persistencia_rede | 0,6433 | 0,7741 | 0,2190 | 0,6278 | 0,6565 |
-| floresta | 0,6407 | 0,7727 | 0,2146 | 0,6170 | 0,6565 |
-| persistencia_publica | 0,6397 | 0,7724 | 0,2193 | 0,6282 | 0,6565 |
-| boosting | 0,6394 | 0,7709 | 0,2166 | 0,6211 | 0,6565 |
-| logistica | 0,6322 | 0,7631 | 0,2209 | 0,6319 | 0,6565 |
-| taxa_base | 0,5000 | 0,6565 | 0,2297 | 0,6521 | 0,6565 |
+| modelo | auc_roc | precisao_media | brier | log_loss | acuracia | f1 | taxa_base |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| persistencia_rede | 0,6433 | 0,7741 | 0,2190 | 0,6278 | 0,6431 | 0,7390 | 0,6565 |
+| floresta | 0,6407 | 0,7727 | 0,2146 | 0,6170 | 0,6576 | 0,7687 | 0,6565 |
+| persistencia_publica | 0,6397 | 0,7724 | 0,2193 | 0,6282 | 0,6428 | 0,7441 | 0,6565 |
+| boosting | 0,6394 | 0,7709 | 0,2166 | 0,6211 | 0,6504 | 0,7551 | 0,6565 |
+| logistica | 0,6322 | 0,7631 | 0,2209 | 0,6319 | 0,6464 | 0,7523 | 0,6565 |
+| taxa_base | 0,5000 | 0,6565 | 0,2297 | 0,6521 | 0,6565 | 0,7926 | 0,6565 |
 
 ### Validação cruzada dentro do treino
 

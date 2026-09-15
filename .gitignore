@@ -32,3 +32,6 @@ data/predictions/*
 
 # Testes
 .pytest_cache/
+
+# Roteiro de gravação: uso local, fora do repositório
+reports/ROTEIRO_VIDEO.md

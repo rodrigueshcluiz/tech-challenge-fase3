@@ -4,8 +4,8 @@ Tech Challenge, Fase 3. Modelo supervisionado que prevê se um aluno do 2º ano
 será considerado alfabetizado, construído sobre a camada Gold e usado para
 estimar o risco de cada município não cumprir a meta de alfabetização.
 
-Para gestores: painel em `reports/dashboard_executivo.html` e roteiro do vídeo
-em `reports/ROTEIRO_VIDEO.md`. A parte técnica está neste README e em `reports/`.
+Para gestores: painel em `reports/dashboard_executivo.html`. A parte técnica
+está neste README e em `reports/`.
 
 ## Contexto do problema
 
@@ -57,10 +57,8 @@ Dez marts em Parquet, um grão por mart, gerados por `gerar_gold.py`:
 | `distribuicao_proficiencia` | 4.837 | ano + UF + rede + faixa |
 | `aluno_features` | 3.817.947 | ano + aluno |
 
-O contrato de cada tabela está em [`CONTRACT.md`](CONTRACT.md). Dois pontos
-merecem atenção ao consumir a Gold: o código de rede 5 é a rede pública
-(estadual + municipal), não a privada, que é o 4; e as metas por município
-valem para a rede municipal, enquanto as metas por UF valem para a rede pública.
+O contrato de cada tabela está em [`CONTRACT.md`](CONTRACT.md). As metas por
+município valem para a rede municipal; as metas por UF, para a rede pública.
 
 ### Base de treino (`aluno_features`)
 
@@ -146,7 +144,7 @@ tech-challenge-fase3
 │   ├── evaluation/     validação da Gold e métricas
 │   └── visualization/
 ├── tests/
-├── reports/            validação, EDA, modelagem, otimização, risco, auditoria, painel, roteiro
+├── reports/            validação, EDA, modelagem, otimização, risco, auditoria, painel
 ├── images/
 ├── CONTRACT.md
 ├── gerar_gold.py · otimizar_modelo.py · treinar_modelo.py · prever_municipios.py
@@ -217,6 +215,17 @@ Todas ponderadas pelo peso amostral.
 
 - AUC-ROC e precisão média: discriminação.
 - Brier e log loss: calibração das probabilidades.
+- Acurácia e F1 no corte de 0,5: acerto por classe.
+
+Acurácia e F1 estão na tabela, mas não decidem nada aqui, e o motivo aparece na
+própria tabela: o baseline que prevê a taxa média para todo mundo classifica
+todos como alfabetizados e sai com **o melhor F1 do conjunto (0,7926)** e
+acurácia igual à taxa base (0,6565). Com 66% de uma classe, um corte fixo
+premia quem chuta a maioria. Além disso, o modelo não é usado como
+classificador: a saída é a probabilidade, que depois é somada por município. No
+grão do município, onde existe uma decisão binária de verdade (cumprir ou não a
+meta), acurácia, precisão, recall e F1 são reportados em
+`reports/RISCO_MUNICIPAL.md`.
 
 Validação temporal: treino em 2024, teste em 2025. Dentro do treino, `GroupKFold`
 por escola, para que alunos da mesma escola não fiquem dos dois lados da divisão.
@@ -225,19 +234,23 @@ por escola, para que alunos da mesma escola não fiquem dos dois lados da divis�
 
 Grão do aluno, teste em 2025:
 
-| modelo | AUC | Brier | log loss |
-|---|---:|---:|---:|
-| Persistência (rede do aluno) | 0,6433 | 0,2190 | 0,6278 |
-| Random forest | 0,6407 | 0,2146 | 0,6170 |
-| Persistência (rede pública) | 0,6397 | 0,2193 | 0,6282 |
-| Gradient boosting | 0,6394 | 0,2166 | 0,6211 |
-| Regressão logística | 0,6322 | 0,2209 | 0,6319 |
-| Taxa média | 0,5000 | 0,2297 | 0,6521 |
+| modelo | AUC | Brier | log loss | acurácia | F1 |
+|---|---:|---:|---:|---:|---:|
+| Persistência (rede do aluno) | 0,6433 | 0,2190 | 0,6278 | 0,6431 | 0,7390 |
+| Random forest | 0,6407 | 0,2146 | 0,6170 | 0,6576 | 0,7687 |
+| Persistência (rede pública) | 0,6397 | 0,2193 | 0,6282 | 0,6428 | 0,7441 |
+| Gradient boosting | 0,6394 | 0,2166 | 0,6211 | 0,6504 | 0,7551 |
+| Regressão logística | 0,6322 | 0,2209 | 0,6319 | 0,6464 | 0,7523 |
+| Taxa média | 0,5000 | 0,2297 | 0,6521 | 0,6565 | 0,7926 |
 
 Em discriminação, nenhum modelo supera a taxa da rede do aluno no ano anterior
 lida sozinha. Os três algoritmos ficam entre 0,632 e 0,641. O ganho do modelo
 está na calibração: a floresta reduz o Brier em 2,0% e o log loss em 1,7% em
 relação à persistência.
+
+A última linha mostra por que acurácia e F1 não servem de critério neste
+problema. A taxa média classifica todo aluno como alfabetizado e obtém o melhor
+F1 da tabela e acurácia igual à taxa base, sem discriminar nada (AUC 0,5).
 
 Overfit e underfit, medidos numa amostra de 300 mil alunos por ano: a floresta
 faz AUC 0,698 no treino, 0,653 em validação cruzada e 0,638 em 2025. Sem limite

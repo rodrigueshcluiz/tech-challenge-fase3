@@ -15,21 +15,29 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    average_precision_score, brier_score_loss, log_loss, roc_auc_score,
+    accuracy_score, average_precision_score, brier_score_loss, f1_score, log_loss,
+    roc_auc_score,
 )
+
+# Corte para as métricas de classe. A saída do modelo é uma probabilidade que
+# depois é somada por município; o corte só existe para acurácia e F1.
+CORTE = 0.5
 
 
 def avaliar(y, probabilidade, peso, nome: str) -> dict:
-    """AUC, precisão média, Brier e log loss — todos ponderados."""
+    """AUC, precisão média, Brier, log loss, acurácia e F1 — todos ponderados."""
     y = np.asarray(y)
     p = np.clip(np.asarray(probabilidade), 1e-6, 1 - 1e-6)
     w = np.asarray(peso, dtype="float64")
+    classe = (p >= CORTE).astype(int)
     return {
         "modelo": nome,
         "auc_roc": roc_auc_score(y, p, sample_weight=w),
         "precisao_media": average_precision_score(y, p, sample_weight=w),
         "brier": brier_score_loss(y, p, sample_weight=w),
         "log_loss": log_loss(y, p, sample_weight=w),
+        "acuracia": accuracy_score(y, classe, sample_weight=w),
+        "f1": f1_score(y, classe, sample_weight=w),
         "taxa_base": float(np.average(y, weights=w)),
     }
 
