@@ -42,6 +42,13 @@ CATEGORICAS = ["sigla_uf", "regiao", "rede_label", "capital"]
 FEATURES = NUMERICAS + CATEGORICAS
 
 
+# Colunas que não são feature mas que a avaliação precisa: o baseline de
+# persistência consulta a taxa do município em t-1, e a agregação municipal
+# precisa saber a rede do aluno e a meta do seu município.
+CONTEXTO = ["id_municipio", "sigla_uf", "rede", "mun_taxa_publica_t1",
+            "mun_taxa_rede_t1", "mun_meta_ano"]
+
+
 @dataclass
 class Conjunto:
     """Um recorte temporal pronto para treino ou avaliação."""
@@ -49,7 +56,8 @@ class Conjunto:
     y: pd.Series
     peso: pd.Series
     grupo: pd.Series
-    # Guardado à parte para o baseline de persistência, que consulta o município.
+    # Guardado à parte para os baselines e para a agregação territorial. Nada
+    # daqui entra como feature.
     contexto: pd.DataFrame
 
     def __len__(self) -> int:
@@ -65,7 +73,7 @@ def _recortar(base: pd.DataFrame, ano: int) -> Conjunto:
     for c in CATEGORICAS:
         X[c] = X[c].astype("string").fillna("desconhecido")
     return Conjunto(X=X, y=d[ALVO], peso=d[PESO], grupo=d[GRUPO],
-                    contexto=d[["id_municipio", "mun_taxa_publica_t1"]])
+                    contexto=d[CONTEXTO])
 
 
 def features_utilizaveis(treino: Conjunto) -> tuple[list[str], list[str]]:

@@ -76,6 +76,8 @@ def markdown_tabela(dados, indice: str = "") -> str:
         return str(v)
     linhas = ["| " + " | ".join(cabecalho) + " |",
               "|" + "|".join(["---"] + ["---:"] * len(df.columns)) + "|"]
-    linhas += ["| " + " | ".join([str(i)] + [celula(v) for v in linha]) + " |"
-               for i, linha in zip(df.index, df.to_numpy())]
+    # `itertuples` e não `to_numpy`: num quadro de tipos mistos o numpy promove
+    # tudo a float, e uma contagem de 404 municípios sairia como "404,0000".
+    linhas += ["| " + " | ".join([str(t[0])] + [celula(v) for v in t[1:]]) + " |"
+               for t in df.itertuples(index=True, name=None)]
     return "\n".join(linhas)

@@ -163,15 +163,27 @@ privada:
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python gerar_gold.py
+./.venv/bin/python treinar_modelo.py
+./.venv/bin/python prever_municipios.py
 ```
 
 Baixe antes as fontes para `data/raw` (ver `data/raw/README.md`). A geração leva
-cerca de 10 segundos e grava os Parquet em `data/gold`, o relatório de
+cerca de 40 segundos e grava os Parquet em `data/gold`, o relatório de
 verificação em `reports/RELATORIO_VALIDACAO.md` e o manifesto (linhas, colunas,
 SHA-256) em `reports/manifest.json`.
 
 Se qualquer verificação bloqueante falhar, **nenhum Parquet é gravado** e o
 processo sai com código 1.
+
+Os dois passos seguintes consomem a Gold e são independentes entre si:
+
+| comando | o que faz | tempo |
+|---|---|---|
+| `treinar_modelo.py` | treina e compara os três modelos no grão do aluno, com interpretabilidade → `reports/MODELAGEM.md` | ~12 min (`--sem-shap`: ~2 min) |
+| `prever_municipios.py` | projeta a taxa por município e ranqueia risco de não cumprir a meta → `reports/RISCO_MUNICIPAL.md` | ~1 min |
+
+Ambos aceitam `--amostra N` para iteração rápida (a amostragem é por escola, não
+por aluno, para não quebrar os grupos da validação cruzada).
 
 ## Estrutura
 
@@ -180,20 +192,23 @@ tech-challenge-fase3
 ├── data
 │   ├── raw/          fontes oficiais do INEP (não versionadas)
 │   ├── external/     dimensões territoriais do IBGE
-│   └── gold/         saída do pipeline (.parquet)
+│   ├── gold/         saída do pipeline (.parquet)
+│   └── predictions/  ranking municipal de risco (.parquet)
 ├── notebooks/        análise exploratória (script em células `# %%`)
-├── tests/            testes das regras de negócio
+├── tests/            testes das regras de negócio e da agregação
 ├── src
 │   ├── config.py     caminhos, domínios oficiais, constantes
 │   ├── utils.py      funções compartilhadas
 │   ├── report.py     coleta das verificações
 │   ├── preprocessing/  bronze · silver · quality_gate · gold
-│   ├── modeling/     pipeline de ML
+│   ├── modeling/     dados · pipeline · agregação municipal
 │   ├── evaluation/   validação da Gold e métricas de modelo
 │   └── visualization/
-├── reports/          relatório de validação e manifesto
+├── reports/          validação, modelagem, risco municipal, manifesto
 ├── images/
-├── gerar_gold.py     ponto de entrada do pipeline de dados
+├── gerar_gold.py         pipeline de dados
+├── treinar_modelo.py     modelagem no grão do aluno
+├── prever_municipios.py  projeção e risco no grão do município
 ├── requirements.txt
 └── README.md
 ```
@@ -232,10 +247,12 @@ cada valor. Hoje: 37.499 metas municipais vêm de 2023, 674 de 2024 e 161 de 202
 ./.venv/bin/pytest
 ```
 
-31 testes sobre as regras que, se mudarem em silêncio, invalidam a Gold inteira:
+45 testes sobre as regras que, se mudarem em silêncio, invalidam o resultado:
 domínio e composição dos escopos de rede, corte de alfabetização e as faixas em
 torno dele, leitura e consolidação das metas, chave determinística, arredondamento
-compatível com Spark, e a defasagem temporal da `aluno_features`.
+compatível com Spark, a defasagem temporal da `aluno_features` e a agregação
+municipal — média ponderada, escopo de rede, classe positiva do risco e
+calibração da probabilidade.
 
 O caso central é o **guarda de regressão do código de rede**. O erro da Fase 2 —
 rotular o código 5 como "privada" quando ele é a rede pública — atravessou painel,
@@ -288,14 +305,13 @@ dados a cada execução: um verifica a regra, o outro verifica o resultado.
 
 ## Etapas de modelagem
 
-*A preencher conforme o desenvolvimento.*
-
 - [x] Análise exploratória — `notebooks/01_analise_exploratoria.py`, relatório em `reports/EDA.md`
 - [x] Engenharia de atributos — contexto territorial defasado em `aluno_features`
 - [x] Pipeline Scikit-learn com imputação, transformação e encoding integrados — `src/modeling/pipeline.py`
 - [x] Tratamento de data leakage — contexto territorial defasado em `aluno_features`
 - [x] Treinamento, validação e otimização — `treinar_modelo.py`
 - [x] Interpretabilidade (Feature Importance, SHAP)
+- [x] Agregação para o grão da decisão e ranking de risco — `prever_municipios.py`, relatório em `reports/RISCO_MUNICIPAL.md`
 
 O tratamento de data leakage já está feito na camada de dados: `aluno_features`
 traz todo indicador de resultado defasado em um ano, com verificação automática
@@ -303,7 +319,7 @@ nos dois sentidos. Ver a seção da base acima.
 
 ## Escolha do algoritmo
 
-Dois modelos, e dois baselines que existem para dar sentido aos números.
+Três modelos, e dois baselines que existem para dar sentido aos números.
 
 | | Por quê |
 |---|---|
@@ -385,6 +401,31 @@ quase toda a importância numa variável (0,064 em `mun_taxa_rede_t1`), enquanto
 floresta distribuiu (0,012 no topo). Mesma performance, leituras diferentes — a
 floresta é mais informativa para explicar o fenômeno.
 
+### O mesmo modelo no grão da decisão
+
+Um AUC de 0,64 parece pouco para sustentar qualquer decisão — e seria, se a
+pergunta fosse sobre a criança. Mas a pergunta do gestor é *"meu município vai
+cumprir a meta?"*, e nesse grão o erro individual se cancela na média ponderada.
+Somando as probabilidades dos alunos por município (`prever_municipios.py`,
+relatório em `reports/RISCO_MUNICIPAL.md`):
+
+| | erro médio da taxa | AUC do risco de meta |
+|---|---:|---:|
+| **Modelo agregado** | **10,2 p.p.** | 0,750 |
+| Repetir o ano anterior | 12,4 p.p. | 0,752 |
+| *(referência: grão do aluno)* | — | *0,641* |
+
+**É aqui que o aprendizado finalmente vale a pena.** No grão do aluno a floresta
+ganhava da persistência por um milésimo de AUC; no grão do município ela reduz o
+erro da taxa em **2,2 p.p., 18% a menos**. A ordenação empata (AUC 0,750 contra
+0,752) — o ganho está em acertar o **nível**, que é o que determina se a barra
+cruza a meta.
+
+A agregação é conferida contra a fonte: a taxa observada reconstruída a partir
+dos microdados ponderados reproduz o indicador publicado em **99,89% dos 5.500
+municípios** dentro de 0,1 p.p., com diferença mediana de 0,0025 p.p. — o
+arredondamento da própria planilha do INEP.
+
 ## Insights encontrados
 
 Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
@@ -405,6 +446,99 @@ Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
 6. **A desigualdade regional não segue o eixo econômico**: Sudeste (64,7%) abaixo
    do Nordeste (66,0%), com o Centro-Oeste liderando (73,8%).
 
+Da projeção municipal (`reports/RISCO_MUNICIPAL.md`):
+
+7. **Agregar ao município transforma o modelo.** O mesmo modelo que tem AUC 0,641
+   no aluno chega a 0,750 no município e reduz em 18% o erro de repetir o ano
+   anterior. O erro individual se cancela na média; o que sobra é o que o modelo
+   aprendeu sobre o território.
+8. **As metas de 2025 foram conservadoras.** Exigiam do município mediano +2,3
+   p.p. sobre 2024, e o avanço mediano realizado foi +7,9 p.p. Nenhuma meta
+   superou o maior avanço observado no país.
+9. **Um choque em t-1 vira previsão errada em t.** O Rio Grande do Sul caiu 19,3
+   p.p. entre 2023 e 2024 — sete vezes a segunda maior queda — e o modelo herdou
+   esse ano como patamar estrutural, projetando descumprimento para 129 dos 200
+   municípios de maior risco. A maioria cumpriu.
+10. **O erro é heterocedástico por porte**: 12,4 p.p. nos municípios menores
+    contra 7,8 p.p. nos maiores. Uma margem única trataria como iguais dois casos
+    com incerteza muito diferente.
+
+## As perguntas de negócio
+
+### 1. Quais fatores têm maior impacto na alfabetização?
+
+**O maior fator é a escola, e ele não está na base.** A decomposição de variância
+é inequívoca: escola 14,5%, município 8,3%, UF 3,7%. A escola sozinha explica
+1,7× o município e mais que UF e município somados. No município mediano, a
+melhor e a pior escola diferem 41 p.p. — duas crianças na mesma cidade, sob a
+mesma secretaria e o mesmo orçamento, com realidades separadas por quarenta
+pontos.
+
+Entre o que **é** mensurável, a ordem é: histórico do próprio território (a taxa
+em t-1 correlaciona +0,71 com o resultado), depois nível socioeconômico
+municipal, depois fluxo escolar (aprovação e abandono nos anos iniciais). Todos
+são proxies territoriais — nenhum descreve a criança.
+
+### 2. Quais municípios apresentam maior risco?
+
+Respondida de forma operacional em `reports/RISCO_MUNICIPAL.md`, com 4.959
+municípios ranqueados e probabilidade estimada para cada um. **815 municípios
+saíram com probabilidade ≥ 80% de não cumprir a meta de 2025; 60% de fato não
+cumpriram.**
+
+A leitura desse ranking exige uma ressalva que o próprio relatório documenta: o
+topo é dominado pelo Rio Grande do Sul, cuja rede municipal caiu 19,3 p.p. entre
+2023 e 2024 — sete vezes a segunda maior queda do país. O modelo lê o ano
+deprimido como patamar estrutural e projeta um colapso que não se confirmou.
+**Detectar o ano anômalo antes de usá-lo como contexto é requisito para operar
+isso em produção**, e a descoberta só apareceu porque olhamos a composição do
+ranking em vez de só a métrica agregada.
+
+### 3. Existem regiões com padrões semelhantes?
+
+Sim, e **elas não seguem o eixo econômico esperado**. Em 2025 o Centro-Oeste
+lidera (73,8%), o Nordeste (66,0%) está acima do Sudeste (64,7%). Um recorte
+Norte/Nordeste pobre contra Sul/Sudeste rico não descreve estes dados.
+
+O agrupamento que de fato organiza o país é outro: **a velocidade de melhora**.
+Na rede municipal, entre 2024 e 2025, Bahia (+19,4 p.p.), Acre (+17,5), Piauí
+(+17,1), Alagoas (+15,3) e Paraíba (+15,1) puxaram o salto nacional, enquanto
+Ceará (−1,5) e Santa Catarina (+1,9) ficaram praticamente parados. O grupo que
+mais avança é o que partia de baixo — há convergência em curso. O Ceará fica
+parado num patamar diferente: com 83,9% em 2025, já superou a meta nacional
+fixada para 2030 (acima de 80%).
+
+### 4. É possível prever quais municípios não atingirão as metas?
+
+**Sim, com utilidade real e limite declarado.** Treinando em 2024 e projetando
+2025 — sem nenhuma informação do ano avaliado — o modelo acerta a taxa municipal
+com erro médio de 10,2 p.p. e separa quem cumpre de quem não cumpre com AUC
+0,750. Contra repetir o ano anterior, reduz o erro em 18%.
+
+O limite é honesto: **a ordenação empata com a persistência territorial**
+(AUC 0,750 contra 0,752). O ganho está em acertar o nível, não em descobrir quem
+está em risco — a taxa do ano passado já dizia isso. E nenhum modelo treinado em
+t-1 antecipou o salto de +7,4 p.p. da rede municipal em 2025; o modelo capturou
+45% dele, pela meta, e errou o resto para baixo.
+
+### 5. Quais variáveis mais influenciam o desempenho do modelo?
+
+Permutação e SHAP concordam na ordem:
+
+| variável | queda de AUC | SHAP |
+|---|---:|---:|
+| `mun_taxa_rede_t1` | 0,0120 | 0,0281 |
+| `mun_meta_ano` | 0,0058 | 0,0163 |
+| `mun_taxa_publica_t1` | 0,0041 | 0,0178 |
+| `mun_nivel_t1` | 0,0018 | 0,0122 |
+| `sigla_uf` | 0,0013 | — |
+
+**O modelo é, essencialmente, um mapa de onde a criança mora.** As quatro
+primeiras variáveis são o mesmo território medido no passado. O INSE e as taxas
+de rendimento aparecem, mas com contribuição marginal — não porque o nível
+socioeconômico não importe, e sim porque ele é constante dentro do município,
+enquanto 86% da variação acontece entre alunos da mesma escola.
+
 ## Limitações do projeto
 
 - O indicador nacional de 2023 não é reproduzível a partir dos microdados
@@ -421,13 +555,80 @@ Da análise exploratória (`reports/EDA.md`, com as figuras em `images/`):
   com Censo Escolar nem com o INSE por escola, e não permite montar histórico.
 - **O enriquecimento disponível é todo municipal** e, por isso, constante dentro
   do município — exatamente onde a variação acontece.
+- **Só existem dois anos treináveis.** `aluno_features` cobre 2024 e 2025: 2023 é
+  o primeiro da série e não tem contexto anterior. Com um ano de treino e um de
+  teste, não há como estimar deriva entre anos nem validar em mais de um ponto no
+  tempo — a próxima safra resolve isso.
+- **O modelo não antecipa mudança de nível.** Capturou 45% do salto de +7,4 p.p.
+  de 2025 e subestimou o resto, e um choque em t-1 (o caso do Rio Grande do Sul)
+  é herdado como se fosse estrutura. Toda projeção aqui pressupõe que o ano
+  anterior foi típico.
+- **A probabilidade de descumprir é calibrada nos resíduos do próprio ano
+  aferido**, o que a torna otimista quando aplicada a um ano ainda não avaliado.
 - A base ainda não inclui Censo Escolar agregado, FUNDEB municipal, Censo 2022 do
   IBGE nem Cadastro Único.
 
 ## Aplicação prática para políticas públicas
 
-*A preencher.*
+O que este projeto entrega a um gestor não é um preditor de criança — é um
+**instrumento de priorização territorial com margem de erro declarada**.
+
+**1. Lista de priorização antes do resultado sair.** A avaliação de um ano é
+divulgada meses depois de aplicada. O ranking de `risco_municipio.parquet` fica
+disponível assim que o ano anterior fecha, com probabilidade e intervalo por
+município. Para uma secretaria estadual que precisa decidir onde colocar
+formação continuada ou material estruturado, antecipar a lista em um ciclo é a
+diferença entre agir no ano da meta e reagir depois dela.
+
+**2. Orçamento dimensionado pela incerteza, não pela média.** O erro não é
+uniforme: 12,4 p.p. nos municípios pequenos contra 7,8 p.p. nos grandes. Um
+município de 40 alunos avaliados a 3 p.p. da meta é indistinguível de um que a
+cumpre; um de 3.000 alunos na mesma posição não é. Tratar os dois com o mesmo
+grau de confiança desperdiça recurso no primeiro e subestima o segundo — a
+estratificação por porte existe no relatório exatamente para evitar isso.
+
+**3. Calibração das metas — as de 2025 foram conservadoras.** Cruzando meta
+publicada com trajetória observada: a meta de 2025 exigia do município mediano um
+salto de **+2,3 p.p.** sobre 2024, e o salto mediano efetivamente realizado foi de
+**+7,9 p.p.** — mais que o triplo. Nenhum município recebeu meta acima do maior
+avanço observado no país, e só 17 (0,3%) receberam meta acima do percentil 99 dos
+avanços reais. O problema do ciclo 2025 não foi meta inatingível: foi meta
+folgada, que sinaliza urgência menor do que a que o sistema demonstrou ser capaz
+de atender. Isso é insumo direto para a negociação do próximo ciclo.
+
+**4. Detector de anomalia territorial — o achado mais transferível.** A queda de
+19,3 p.p. do Rio Grande do Sul entre 2023 e 2024 aparece como outlier absoluto na
+série e contamina toda a projeção do estado. Um painel que monitore variação
+atípica por UF sinaliza que aquele ano não deve ser lido como tendência. Vale
+para qualquer choque — climático, sanitário, administrativo.
+
+**O que este projeto não autoriza:** nenhuma decisão sobre uma criança
+específica. Com AUC 0,64 no grão do aluno e 86% da variância dentro da escola,
+usar isto para triagem individual seria estatisticamente indefensável e
+eticamente ruim. A unidade de decisão é o território.
 
 ## Possíveis evoluções futuras
 
-*A preencher.*
+**Dados — é onde está o retorno.** O teto medido é da fonte, não do método, então
+qualquer ganho relevante vem de variável nova, não de algoritmo novo:
+
+- **Variáveis de aluno** (sexo, idade, raça, trajetória) atacariam os 86% da
+  variância que hoje são inalcançáveis. Dependem de acordo com o INEP para
+  microdado identificado — sem isso, nenhum modelo passa muito de onde está.
+- **Chave de escola estável.** O código do INEP é mascarado e resorteado a cada
+  ano, o que impede juntar Censo Escolar, INSE por escola e histórico — no nível
+  que mais explica o resultado (14,5%).
+- **Censo Escolar agregado, FUNDEB municipal, Censo 2022 do IBGE e Cadastro
+  Único**, já mapeados e ainda não ingeridos.
+
+**Modelagem.** Correção explícita de deriva entre anos (o modelo captura 45% do
+salto nacional e perde o resto); intervalo de predição por reamostragem em vez da
+aproximação normal por estrato; e um modelo direto no grão do município, que
+hoje é obtido por agregação — vale medir se treinar nesse grão supera agregar a
+predição individual.
+
+**Engenharia.** Persistir o modelo treinado para separar treino de inferência;
+versionar os artefatos de predição junto ao manifesto da Gold; e reexecutar o
+recorte quando o INEP publicar a revisão de 2025, já que a precedência entre
+divulgações está implementada e o pipeline absorve a nova safra sem alteração de
+código.

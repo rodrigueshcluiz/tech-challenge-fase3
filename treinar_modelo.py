@@ -27,7 +27,7 @@ from src.evaluation.metricas import (
 from src.modeling.dados import ANO_TESTE, ANO_TREINO, carregar, features_utilizaveis
 from src.modeling.pipeline import MODELOS, SEMENTE, nomes_das_features
 from src.visualization.estilo import (
-    AZUL_ESCURO, SERIE, TINTA, TINTA_3, aplicar_estilo, num, salvar, titular,
+    SERIE, TINTA, TINTA_3, aplicar_estilo, milhar, num, salvar, titular,
 )
 
 import matplotlib.pyplot as plt
@@ -202,8 +202,9 @@ def main() -> int:
     # --- relatório ----------------------------------------------------------
     linhas = [
         "# Modelagem — predição de alfabetização no grão do aluno", "",
-        f"Treino em {ANO_TREINO} ({len(treino):,} alunos, {treino.grupo.nunique():,} escolas), "
-        f"teste em {ANO_TESTE} ({len(teste):,} alunos). Divisão temporal, validação cruzada "
+        f"Treino em {ANO_TREINO} ({milhar(len(treino))} alunos, "
+        f"{milhar(treino.grupo.nunique())} escolas), "
+        f"teste em {ANO_TESTE} ({milhar(len(teste))} alunos). Divisão temporal, validação cruzada "
         f"agrupada por escola, tudo ponderado pelo peso amostral.",
         "", "## Resultados", "", markdown_tabela(placar, "modelo"), "",
         "### Validação cruzada dentro do treino", "",

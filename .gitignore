@@ -16,6 +16,11 @@ data/gold/*
 reports/manifest.json
 reports/RELATORIO_VALIDACAO.md
 
+# Saída da modelagem — gerada por `python prever_municipios.py`.
+# O ranking em markdown vai versionado em reports/; o Parquet completo, não.
+data/predictions/*
+!data/predictions/.gitkeep
+
 # Modelos treinados e artefatos pesados
 *.pkl
 *.joblib

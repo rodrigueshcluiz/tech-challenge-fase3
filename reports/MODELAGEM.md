@@ -1,6 +1,6 @@
 # Modelagem — predição de alfabetização no grão do aluno
 
-Treino em 2024 (1,851,852 alunos, 42,328 escolas), teste em 2025 (1,966,095 alunos). Divisão temporal, validação cruzada agrupada por escola, tudo ponderado pelo peso amostral.
+Treino em 2024 (1.851.852 alunos, 42.328 escolas), teste em 2025 (1.966.095 alunos). Divisão temporal, validação cruzada agrupada por escola, tudo ponderado pelo peso amostral.
 
 ## Resultados
 
