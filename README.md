@@ -80,6 +80,13 @@ treino porque não tem ano anterior para fornecer contexto.
 
 Alvo: 63,1% de alfabetizados (62,5% ponderado pelo peso amostral).
 
+Duas dessas colunas não chegam ao modelo. `mun_variacao_publica_t1` e
+`uf_variacao_publica_t1` são a variação da taxa medida em t-1, ou seja, exigem
+t-2: para um aluno de 2024, a taxa de 2023 menos a de 2022, que não existe.
+Ficam 100% nulas no ano de treino, e `features_utilizaveis()` as descarta em
+vez de imputar um valor inventado. Permanecem na Gold porque passam a ser
+utilizáveis quando o treino incluir 2025.
+
 Tratamento de vazamento, feito na construção da base:
 
 - Todo indicador de resultado entra defasado em um ano. A taxa do município no
@@ -205,9 +212,6 @@ entre folds. Detalhes em `reports/OTIMIZACAO.md`, incluindo dois testes feitos
 depois: profundidade de 6 a sem limite não muda AUC nem Brier (12 dá o mesmo
 modelo que 18 com um terço do tamanho), e remover features por importância
 piora em todo subconjunto.
-
-`mun_variacao_publica_t1` e `uf_variacao_publica_t1` são descartadas
-automaticamente porque são inteiramente nulas em 2024.
 
 ## Métricas de avaliação
 
