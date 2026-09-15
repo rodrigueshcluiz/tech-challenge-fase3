@@ -1,0 +1,26 @@
+# Ambiente
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Dados: as fontes do INEP somam ~82 MB e são públicas e reprodutíveis.
+# data/raw/README.md tem a URL de cada arquivo.
+data/raw/*
+!data/raw/README.md
+
+# Saída do pipeline — gerada por `python gerar_gold.py`
+data/gold/*
+!data/gold/.gitkeep
+reports/manifest.json
+reports/RELATORIO_VALIDACAO.md
+
+# Modelos treinados e artefatos pesados
+*.pkl
+*.joblib
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
