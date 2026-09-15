@@ -394,6 +394,17 @@ o fato de que foi o resultado fora do tempo que expôs a permissividade.
 Varrer 42 configurações sobre 1,85 milhão de alunos sem mover o terceiro decimal
 do AUC é a evidência mais direta de que **o teto é dos dados, não do método**.
 
+Duas perguntas naturais foram medidas depois, na base completa (adendo de
+`reports/OTIMIZACAO.md`). **Profundidade:** de 6 a sem limite o AUC fica entre
+0,6406 e 0,6415, dentro do ruído; profundidade 12 é o mesmo modelo que 18 com um
+terço do tamanho (45 MB contra 134 MB), e é a escolha certa para um serviço. O
+padrão segue em 18 para que todos os números publicados descrevam um só modelo.
+**Remover features:** todo subconjunto perde para o conjunto completo, e o
+ranking de importância medido dentro de 2024 é diferente do medido em 2025 — com
+8 pares correlacionados acima de 0,80, não existe um conjunto "irrelevante"
+identificável com segurança. Uma primeira tentativa parecia ganhar 0,002 de AUC;
+era vício de seleção, por ter escolhido as features olhando o teste.
+
 **Duas features foram descartadas automaticamente**: `mun_variacao_publica_t1` e
 `uf_variacao_publica_t1` são 100% nulas em 2024, porque variação em t-1 exige
 t-2. Sob divisão temporal elas existiriam só no teste — o modelo nunca teria

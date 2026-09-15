@@ -141,3 +141,68 @@ A configuração ajustada só substitui o padrão se ganhar **mais que o desvio 
 ## Figura
 
 ![ganho da otimização](../images/11_ganho_da_otimizacao.png)
+
+---
+
+## Adendo — remover features e reduzir a profundidade
+
+Duas perguntas feitas depois da entrega, medidas na base completa (treino em
+2024, avaliação única em 2025, floresta com os demais parâmetros padrão).
+
+### Profundidade: 18 não compra nada, e 12 é o mesmo modelo com um terço do tamanho
+
+| max_depth | AUC 2025 | Brier | ajuste | predição | tamanho | nós por árvore |
+|---:|---:|---:|---:|---:|---:|---:|
+| 6 | 0,6415 | 0,2151 | 34 s | 2,5 s | 9 MB | 118 |
+| 8 | 0,6406 | 0,2148 | 40 s | 2,5 s | 14 MB | 398 |
+| 10 | 0,6408 | 0,2147 | 44 s | 2,6 s | 25 MB | 1.077 |
+| 12 | 0,6411 | 0,2146 | 48 s | 2,5 s | 45 MB | 2.318 |
+| 14 | 0,6409 | 0,2146 | 50 s | 2,7 s | 73 MB | 4.077 |
+| **18 (padrão)** | 0,6407 | 0,2146 | 53 s | 2,9 s | 134 MB | 7.920 |
+| 24 | 0,6412 | 0,2146 | 58 s | 3,1 s | 187 MB | 11.199 |
+| sem limite | 0,6407 | 0,2145 | 57 s | 3,0 s | 201 MB | 12.084 |
+
+A qualidade é a mesma de 6 a sem limite — a diferença de AUC entre qualquer
+par de linhas está dentro do ruído entre folds (0,0013). O que muda é o
+tamanho: profundidade 12 entrega o mesmo AUC e o mesmo Brier com um terço do
+modelo; profundidade 6, com 118 nós por árvore, ainda empata em AUC e perde
+0,0005 de Brier. O tempo de ajuste quase não cai (34 s contra 53 s) porque o
+custo é dominado pelo volume de dados, não pela profundidade. **Para um
+serviço em produção, 10 a 12 é a escolha certa**; a busca de hiperparâmetros
+já tinha visto isso (profundidade 10 com folha 200 ou 400 empatou com o
+melhor candidato), mas sem medir tamanho e tempo.
+
+O padrão do repositório continua em 18 para que todos os números publicados
+descrevam um único modelo; trocar é uma linha em `src/modeling/pipeline.py`.
+
+### Remover features não melhora, e a lista de "irrelevantes" nem é estável
+
+A primeira tentativa deu ganho: medindo importância por permutação **em 2025**
+e ficando com as 11 mais importantes, o AUC numa amostra de 300 mil alunos
+subiu de 0,6380 para 0,6404. Esse ganho era vício de seleção — escolher
+features olhando o conjunto de teste e depois avaliar nele. Refeito da forma
+correta, com a importância medida num fold de escolas **dentro de 2024** e
+uma única avaliação em 2025, na base completa:
+
+| conjunto | features | AUC (depth 18) | AUC (depth 12) | Brier (18) |
+|---|---:|---:|---:|---:|
+| **todas** | 21 | **0,6407** | **0,6411** | **0,2146** |
+| 14 mais importantes | 14 | 0,6374 | 0,6371 | 0,2150 |
+| 11 mais importantes | 11 | 0,6376 | 0,6381 | 0,2151 |
+| 8 mais importantes | 8 | 0,6375 | 0,6392 | 0,2158 |
+| importância positiva no fold | 10 | 0,6375 | 0,6373 | 0,2149 |
+
+Todo subconjunto perde para o conjunto completo, em AUC e em Brier. E o
+ranking de importância medido dentro de 2024 é diferente do medido em 2025:
+`escola_alunos_avaliados` é a segunda mais importante em 2024 e tem
+importância negativa em 2025; `mun_nivel_t1` e as taxas de rendimento são
+negativas em 2024 e positivas em 2025. Com 8 pares de features correlacionadas
+acima de 0,80 (`AUDITORIA.md`, achado 5.1), a importância individual de cada
+uma é instável por construção, e não há um conjunto "irrelevante" que se possa
+identificar com segurança. Isso converge com a poda por redundância da
+auditoria, que também piorou.
+
+PCA ou outra projeção linear não foi testada de propósito: os modelos são de
+árvore, quatro das features são categóricas, e a interpretabilidade por
+variável é parte do que o projeto entrega. Se remover features não ajuda,
+misturá-las em componentes tampouco ajudaria, e custaria a leitura.
