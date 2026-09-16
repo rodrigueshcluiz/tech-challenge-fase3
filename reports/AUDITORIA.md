@@ -358,6 +358,42 @@ do projeto não muda (o ganho é calibração e grão municipal), mas a frase "a
 floresta supera a persistência por 0,001" foi corrigida no README e em
 `MODELAGEM.md`, que agora publica os dois baselines.
 
+### Um modelo direto no grão do município — construído e adotado
+
+A auditoria listava como evolução futura treinar no grão do município em vez de
+agregar a predição do aluno. Foi feito. O desenho repete o do aluno: divisão
+temporal, contexto em t-1, meta do ano corrente, e a configuração escolhida por
+validação cruzada de 5 folds **agrupada por UF dentro de 2024**, com 2025 medido
+uma vez só.
+
+| no mesmo conjunto de 4.959 municípios | erro médio | AUC do risco |
+|---|---:|---:|
+| floresta no grão do município | **9,97 p.p.** | **0,7581** |
+| agregação da predição do aluno | 10,20 p.p. | 0,7496 |
+| persistência (taxa em t-1) | 12,40 p.p. | 0,7521 |
+
+O ganho é pequeno e sólido: teste pareado t = 8,01, bootstrap de 2.000 reamostras
+dando [+0,17; +0,28] p.p. de erro e [+0,005; +0,012] de AUC, vantagem em todos os
+quatro estratos de porte e em 55,3% dos municípios. É a primeira vez no projeto
+que algo supera a persistência territorial em AUC.
+
+Duas observações metodológicas:
+
+- **A disciplina de seleção custou 0,12 p.p.** A configuração que eu havia
+  escolhido a olho dava 9,85 p.p. e AUC 0,7651. Selecionando por validação
+  cruzada dentro de 2024, sem olhar o teste, o resultado honesto é 9,97 e 0,7581.
+  A diferença é o mesmo viés de seleção que apareceu na busca de hiperparâmetros.
+- **A ordem de importância é outra.** No grão do município as quatro primeiras
+  são `mun_meta_ano`, `uf_taxa_publica_t1`, `mun_media_lp_t1` e `uf_meta_ano`. A
+  `mun_media_lp_t1` foi testada e rejeitada como feature do aluno, por ser cópia
+  degradada da taxa (achado 1.2); aqui ela é a terceira mais importante. Com
+  5.448 linhas em vez de 1,85 milhão e sem o ruído individual, a informação
+  marginal dela deixa de se perder.
+
+O modelo municipal passou a gerar o ranking e a projeção. A agregação continua
+publicada: é a comparação que dá sentido ao número e é ela que fornece o tamanho
+amostral efetivo usado para estratificar a incerteza.
+
 ### O peso amostral como feature — medido e recusado
 
 `peso_amostral` entra no treino como `sample_weight` e nunca como feature. A

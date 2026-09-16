@@ -1,15 +1,27 @@
-"""Agregação da predição do aluno para o grão em que a política pública decide.
+"""Agregação da predição do aluno e métricas no grão em que a política decide.
 
-O modelo prevê no grão do aluno e ali sua discriminação é modesta — AUC 0,64,
-porque 86% da variância do alvo está entre alunos da mesma escola e nenhuma
-variável disponível alcança esse nível. Mas a pergunta do gestor não é *"esta
-criança será alfabetizada?"*: é *"meu município vai cumprir a meta?"*.
+Duas responsabilidades. A primeira é agregar: levar a probabilidade prevista
+para cada aluno até a taxa do seu município, por média ponderada. A segunda é
+medir — erro da taxa, acerto no risco de meta, incerteza por porte, calibração
+e ranking —, e essas funções servem tanto à agregação quanto ao modelo treinado
+direto no grão do município (`modelo_municipal.py`), para que os dois sejam
+comparados com a mesma régua.
+
+Sobre a agregação: o modelo prevê no grão do aluno e ali sua discriminação é
+modesta — AUC 0,64, porque 86% da variância do alvo está entre alunos da mesma
+escola e nenhuma variável disponível alcança esse nível. Mas a pergunta do
+gestor não é *"esta criança será alfabetizada?"*: é *"meu município vai cumprir
+a meta?"*.
 
 Essa mudança de grão muda o problema. A taxa municipal prevista é a média
 ponderada das probabilidades individuais, e **o erro individual se cancela na
 média**: o que sobra é o viés sistemático do modelo sobre aquele território, que
 é justamente o que ele aprendeu. Um modelo fraco no indivíduo pode ser bom no
-agregado — e é isso que este módulo mede, em vez de supor.
+agregado — e é isso que este módulo mede, em vez de supor. Medido: 10,20 p.p. de
+erro médio contra 12,40 de repetir o ano anterior. O modelo municipal direto
+chega a 9,97 e é o que gera o ranking publicado; a agregação continua aqui
+porque é a comparação que dá sentido a esse número, e porque é ela que fornece o
+tamanho amostral efetivo usado para estratificar a incerteza.
 
 O recorte é município × **rede municipal**, e não por escolha estética: é o
 único em que o INEP publica meta por município (`REDE_META_MUNICIPIO`). Comparar

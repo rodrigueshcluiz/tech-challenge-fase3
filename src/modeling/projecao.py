@@ -17,6 +17,10 @@ rede, a projeção erra por um motivo que não é do modelo.
 
 Nada aqui tem alvo. O quadro serve para prever, não para avaliar — a aferição do
 método está no recorte 2024 → 2025, onde existe gabarito.
+
+Este módulo monta o quadro **de alunos**. O quadro equivalente no grão do
+município, que alimenta o modelo direto, está em `modelo_municipal.py` e segue a
+mesma regra de defasagem.
 """
 from __future__ import annotations
 

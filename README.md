@@ -120,7 +120,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | `gerar_gold.py` | Bronze, Silver, Quality Gate e Gold; grava `data/gold`, `reports/RELATORIO_VALIDACAO.md` e `reports/manifest.json` | ~40 s |
 | `otimizar_modelo.py` | busca de hiperparâmetros dentro de 2024; `reports/OTIMIZACAO.md` | ~1 h |
 | `treinar_modelo.py` | treina e compara os modelos no grão do aluno; `reports/MODELAGEM.md` | ~12 min (`--sem-shap`: ~2 min) |
-| `prever_municipios.py` | afere o método contra 2025 e projeta 2026 por município; `reports/RISCO_MUNICIPAL.md` | ~2 min |
+| `prever_municipios.py` | compara os dois caminhos até o risco municipal, afere contra 2025 e projeta 2026; `reports/RISCO_MUNICIPAL.md` | ~4 min |
 
 Se uma verificação bloqueante falhar em `gerar_gold.py`, nenhum Parquet é
 gravado. Os scripts de modelagem aceitam `--amostra N` para iteração rápida, com
@@ -130,9 +130,10 @@ amostragem por escola.
 ./.venv/bin/pytest
 ```
 
-63 testes cobrem as regras que invalidariam o resultado se mudassem: domínio de
+76 testes cobrem as regras que invalidariam o resultado se mudassem: domínio de
 rede, corte de alfabetização, consolidação das metas, chave determinística,
-defasagem temporal, agregação municipal e montagem do quadro de projeção.
+defasagem temporal, agregação municipal, quadro de projeção e quadro do modelo
+municipal.
 
 ## Estrutura
 
@@ -147,7 +148,7 @@ tech-challenge-fase3
 ├── src
 │   ├── config.py       caminhos, domínios, constantes
 │   ├── preprocessing/  bronze, silver, quality_gate, gold, aluno_features
-│   ├── modeling/       dados, pipeline, otimização, agregação municipal, projeção
+│   ├── modeling/       dados, pipeline, otimização, agregação e modelo municipal, projeção
 │   ├── evaluation/     validação da Gold e métricas
 │   └── visualization/
 ├── tests/
@@ -185,7 +186,8 @@ tech-challenge-fase3
 5. Busca de hiperparâmetros com `RandomizedSearchCV` dentro de 2024:
    `otimizar_modelo.py`.
 6. Interpretabilidade por permutação e SHAP.
-7. Agregação ao grão do município e ranking de risco: `prever_municipios.py`.
+7. Risco por município, por dois caminhos comparados: agregação da predição do
+   aluno e modelo treinado direto no grão do município. `prever_municipios.py`.
 
 ## Escolha do algoritmo
 
@@ -273,26 +275,52 @@ Importância por permutação na floresta: `mun_taxa_rede_t1` (0,0120),
 O SHAP ordena da mesma forma. As quatro medem o mesmo território no passado.
 INSE e rendimento escolar aparecem com contribuição pequena.
 
-### Grão do município
+## O risco por município
 
-A pergunta do gestor é se o município vai cumprir a meta. Somando as
-probabilidades dos alunos por município e rede municipal (`prever_municipios.py`):
+O modelo de aluno responde à pergunta do enunciado. A pergunta do gestor é
+outra: este município vai cumprir a meta? Ela tem duas respostas possíveis, e
+`prever_municipios.py` mede as duas contra 2025.
+
+A primeira é agregar: somar as probabilidades dos alunos dentro de cada
+município, ponderadas pelo peso amostral. A segunda é treinar um modelo direto
+no grão do município, com uma linha por território, em
+`src/modeling/modelo_municipal.py`.
 
 | | erro médio da taxa | AUC do risco de meta |
 |---|---:|---:|
-| Modelo agregado | 10,2 p.p. | 0,750 |
-| Repetir o ano anterior | 12,4 p.p. | 0,752 |
+| Floresta no grão do município | 9,97 p.p. | 0,758 |
+| Agregação do modelo de aluno | 10,20 p.p. | 0,750 |
+| Repetir o ano anterior | 12,40 p.p. | 0,752 |
 
-No grão do município o modelo reduz o erro da taxa em 2,2 p.p. (18%). A
-ordenação empata com a persistência; o ganho está no nível da taxa prevista. A
-taxa observada reconstruída dos microdados reproduz o indicador publicado em
+O modelo municipal vence nas duas métricas, e é ele que gera o ranking e a
+projeção. O ganho sobre a agregação é pequeno mas consistente: teste pareado
+t = 8,0 nos 4.959 municípios, intervalo de 95% de [+0,17; +0,28] p.p. no erro
+e [+0,005; +0,012] no AUC, com vantagem em todos os quatro estratos de porte.
+É também a primeira vez no projeto que algo supera a persistência territorial
+em AUC.
+
+A diferença entre os dois caminhos não é de grão, é de função de perda. O
+modelo de aluno minimiza erro por criança, então o ajuste é dominado pelos
+municípios grandes, que concentram alunos. O modelo municipal minimiza erro por
+território, com cada município pesando o mesmo, que é como o resultado é
+medido e como a política é decidida.
+
+A ordem de importância também muda. No grão do município as quatro primeiras
+são a meta do ano, a taxa da UF em t-1, a média de proficiência do município em
+t-1 e a meta da UF. A média de proficiência havia sido testada e rejeitada como
+feature do aluno, por ser cópia degradada da taxa; aqui, sem o ruído
+individual, ela contribui.
+
+A agregação continua sendo calculada e publicada, por dois motivos: é a
+comparação contra a qual o modelo municipal se prova, e é ela que fornece o
+porte efetivo de cada município, usado para estratificar a incerteza. A taxa
+observada que ela reconstrói dos microdados reproduz o indicador publicado em
 99,89% dos 5.500 municípios dentro de 0,1 p.p.
 
-`prever_municipios.py` ajusta dois modelos. O de aferição treina só em 2024 e
-mede o erro contra 2025. O de produção treina em 2024 e 2025 e projeta 2026,
-usando o roteiro de alunos de 2025 como molde e trocando todo o contexto pelo
-de 2026. A projeção supõe que a composição dos municípios (escolas e pesos)
-não muda de um ano para o outro.
+Cada caminho é ajustado duas vezes. A versão de aferição treina só em 2024 e
+mede o erro contra 2025. A de produção treina em 2024 e 2025 e projeta 2026.
+Para a agregação, o quadro de 2026 usa o roteiro de alunos de 2025 como molde,
+com todo o contexto trocado, o que supõe composição estável de escolas e pesos.
 
 ## Insights encontrados
 
@@ -365,14 +393,14 @@ acima da meta nacional de 2030.
 ### É possível prever quais municípios não atingirão as metas?
 
 Sim, dentro de uma margem conhecida. Treinando apenas com 2024 e prevendo 2025,
-o erro médio da taxa municipal é de 10,2 pontos percentuais e o AUC para separar
-quem cumpre de quem não cumpre a meta é 0,750.
+o erro médio da taxa municipal é de 9,97 pontos percentuais e o AUC para separar
+quem cumpre de quem não cumpre a meta é 0,758.
 
-A projeção para 2026 aponta 1.039 de 4.972 municípios abaixo da meta, ou 20,9%,
-contra os 27,9% que ficaram abaixo em 2025. Esse número deve ser lido como teto.
-O modelo subestimou 2025 em 6,4 pontos percentuais porque não tem como antecipar
-saltos de nível como o que aconteceu naquele ano, e a mesma limitação vale para
-2026.
+A projeção para 2026 aponta 1.207 de 4.972 municípios abaixo da meta, ou 24,3%,
+contra os 27,9% que ficaram abaixo em 2025. A melhora é pequena porque as metas
+sobem todo ano e acompanham o avanço observado. Esse número deve ser lido como
+teto: o modelo subestimou 2025 em 6,3 pontos percentuais, já que não tem como
+antecipar saltos de nível como o daquele ano, e a mesma limitação vale para 2026.
 
 ### Quais variáveis mais influenciam o modelo?
 
@@ -424,7 +452,7 @@ declarada, disponível assim que o ano anterior fecha.
 4. **Meta descalibrada após choque.** As metas do Rio Grande do Sul foram
    calculadas sobre o patamar de 2023 (63,5%). O estado caiu para 44,2% em 2024
    e recuperou para 52,1% em 2025; a meta mediana de 2026 é 75,9%, contra 69,4%
-   no país. Por isso 280 dos 299 municípios gaúchos aparecem em risco. Não é
+   no país. Por isso 283 dos 299 municípios gaúchos aparecem em risco. Não é
    indicador de gestão; é caso de repactuação.
 5. **Detecção de ano atípico.** Uma queda como a do RS contamina toda a projeção
    do estado. Monitorar variação atípica por UF evita ler um choque como

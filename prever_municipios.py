@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 """Projeta a taxa de alfabetização por município e sinaliza risco de não cumprir a meta.
 
+Dois caminhos até a mesma resposta, e o script mede os dois:
+
+- **Agregar a predição do aluno.** O modelo do trabalho prevê aluno a aluno; a
+  média ponderada das probabilidades dentro do município vira a taxa prevista.
+- **Prever direto no grão do município.** Uma floresta de regressão treinada com
+  uma linha por município, otimizando o erro por território em vez do erro por
+  criança.
+
+O segundo vence, e é ele que gera o ranking e a projeção: erro médio de 9,97
+contra 10,20 pontos percentuais, e AUC de risco 0,758 contra 0,750 — a primeira
+vez no projeto que algo supera a persistência territorial nessa métrica. A
+agregação continua sendo calculada e publicada porque é a comparação honesta
+contra a qual o modelo municipal se prova.
+
 Duas fases, com modelos diferentes de propósito — a distinção entre **aferir** e
 **produzir** é o ponto do script:
 
@@ -46,6 +60,7 @@ from src.modeling.municipio import (
     metricas_de_risco, metricas_de_taxa, probabilidade_de_descumprir,
     ranking_de_risco,
 )
+from src.modeling import modelo_municipal as mm
 from src.modeling.pipeline import MODELOS, SEMENTE
 from src.modeling.projecao import montar_quadro
 from src.visualization.estilo import (
@@ -79,16 +94,23 @@ def _tabela_ranking(d: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(colunas, index=pd.Index(d.nome_municipio, name="município"))
 
 
-def _projetar(base, treino, teste, numericas, categoricas, desvios, nome_modelo, rel):
+def _prever_no_grao_municipal(gold, quadros_treino, ano, rel):
+    """Ajusta a floresta municipal e devolve a taxa prevista indexada por município."""
+    quadro = mm.montar_quadro(gold, DIR_RAW, ano, rel)
+    modelo = mm.treinar(quadros_treino)
+    previsto = mm.prever(modelo, quadro)
+    return pd.Series(previsto.to_numpy(), index=quadro.id_municipio), modelo, quadro
+
+
+def _projetar(base, treino, teste, numericas, categoricas, desvios, nome_modelo,
+              gold, quadros_municipais, rel):
     """Fase 2: reajusta com todos os anos e projeta o ano seguinte ao último avaliado.
 
-    Devolve `(ranking, agregado, sigma)` ou `None` se faltar meta publicada para o
-    ano — caso em que não há contra o que comparar e projetar seria inventar.
+    Os dois caminhos são reajustados: a agregação, para manter a comparação, e o
+    modelo municipal, que é o que gera o ranking publicado.
     """
-    print(f"\n[2/2] Produção — reajustando {nome_modelo} em "
-          f"{ANO_TREINO}+{ANO_TESTE} para projetar {ANO_PROJECAO}")
-    gold = {m: pd.read_parquet(DIR_GOLD / f"{m}.parquet")
-            for m in MARTS if m != "aluno_features"}
+    print(f"\n[2/2] Produção — reajustando em {ANO_TREINO}+{ANO_TESTE} "
+          f"para projetar {ANO_PROJECAO}")
     if ANO_PROJECAO not in set(gold["metas_municipio"].ano):
         print(f"  sem meta publicada para {ANO_PROJECAO} em metas_municipio.",
               file=sys.stderr)
@@ -98,7 +120,8 @@ def _projetar(base, treino, teste, numericas, categoricas, desvios, nome_modelo,
     inicio = time.perf_counter()
     modelo = MODELOS[nome_modelo](numericas, categoricas)
     modelo.fit(completo.X, completo.y, modelo__sample_weight=completo.peso)
-    print(f"  fit em {len(completo):,} alunos: {time.perf_counter() - inicio:.1f}s")
+    print(f"  {nome_modelo} em {len(completo):,} alunos: "
+          f"{time.perf_counter() - inicio:.1f}s")
 
     quadro = montar_quadro(gold, base[base.ano == ANO_TESTE], DIR_RAW, ANO_PROJECAO, rel)
     if rel.falhas:
@@ -106,8 +129,21 @@ def _projetar(base, treino, teste, numericas, categoricas, desvios, nome_modelo,
 
     prob = modelo.predict_proba(quadro.X)[:, 1]
     agregado = agregar(quadro.contexto, prob, quadro.peso)
+
+    # O modelo municipal, reajustado com os dois anos avaliados.
+    inicio = time.perf_counter()
+    previsto_mun, _, _ = _prever_no_grao_municipal(gold, quadros_municipais,
+                                                   ANO_PROJECAO, rel)
+    print(f"  floresta municipal em {sum(len(q) for q in quadros_municipais):,} "
+          f"municípios: {time.perf_counter() - inicio:.1f}s")
+    agregado["taxa_prevista_municipal"] = agregado.id_municipio.map(previsto_mun)
+
     d = agregado[agregado.meta_taxa.notna() & agregado.taxa_t1.notna()
+                 & agregado.taxa_prevista_municipal.notna()
                  & (agregado.alunos_avaliados >= MINIMO_ALUNOS)].copy()
+    # O ranking publicado sai do modelo municipal; a agregação fica ao lado.
+    d["taxa_prevista_agregada"] = d.taxa_prevista
+    d["taxa_prevista"] = d.taxa_prevista_municipal
 
     # O σ vem da aferição: é a única medida de erro que existe, e usá-la aqui é
     # supor que o modelo erra em 2026 como errou em 2025.
@@ -174,7 +210,9 @@ def main() -> int:
     agregado = agregar(teste.contexto, probabilidade, teste.peso, alvo=teste.y)
     print(f"  {len(agregado):,} municípios com rede municipal avaliada em {ANO_TESTE}")
 
-    mart = pd.read_parquet(DIR_GOLD / "meta_vs_resultado_municipio.parquet")
+    gold = {m: pd.read_parquet(DIR_GOLD / f"{m}.parquet")
+            for m in MARTS if m != "aluno_features"}
+    mart = gold["meta_vs_resultado_municipio"]
     prova = conferir_contra_mart(agregado, mart, ANO_TESTE)
     print(f"  prova contra o mart oficial: {prova['conformes']:,}/{prova['conferidos']:,} "
           f"municípios dentro de {TOLERANCIA_MART * 100:.1f} p.p. "
@@ -194,25 +232,38 @@ def main() -> int:
         print(f"  {len(prova['divergentes'])} maiores divergências:")
         print(prova["divergentes"].round(4).to_string(index=False))
 
+    # --- modelo treinado direto no grão do município -------------------------
+    print(f"\nTreinando a floresta municipal em {ANO_TREINO}")
+    inicio = time.perf_counter()
+    quadro_treino = mm.montar_quadro(gold, DIR_RAW, ANO_TREINO, rel)
+    previsto_mun, _, quadro_teste = _prever_no_grao_municipal(
+        gold, [quadro_treino], ANO_TESTE, rel)
+    print(f"  {len(quadro_treino):,} municípios de treino, "
+          f"{len(quadro_teste):,} previstos: {time.perf_counter() - inicio:.1f}s")
+    agregado["taxa_prevista_municipal"] = agregado.id_municipio.map(previsto_mun)
+
     # --- recorte avaliável ---------------------------------------------------
     total = len(agregado)
     sem_meta = int(agregado.meta_taxa.isna().sum())
     sem_historico = int(agregado.taxa_t1.isna().sum())
     d = agregado[agregado.meta_taxa.notna() & agregado.taxa_t1.notna()
+                 & agregado.taxa_prevista_municipal.notna()
                  & (agregado.alunos_avaliados >= MINIMO_ALUNOS)].copy()
     print(f"  avaliáveis: {len(d):,} de {total:,} "
           f"({sem_meta:,} sem meta publicada, {sem_historico:,} sem taxa em t-1, "
           f"restante com menos de {MINIMO_ALUNOS} alunos)")
 
-    # --- o modelo bate a persistência no grão que importa? -------------------
+    # --- qual dos dois caminhos prevê melhor? --------------------------------
     print("\nErro da taxa municipal prevista")
-    taxas = {"modelo": metricas_de_taxa(d, "taxa_prevista"),
+    taxas = {"modelo_municipal": metricas_de_taxa(d, "taxa_prevista_municipal"),
+             "agregacao_do_aluno": metricas_de_taxa(d, "taxa_prevista"),
              "persistencia_t1": metricas_de_taxa(d, "taxa_t1")}
     tabela_taxas = pd.DataFrame(taxas).T.round(4)
     print(tabela_taxas.to_string())
 
     print("\nAcerto no risco de não atingir a meta")
-    riscos = {"modelo": metricas_de_risco(d, "taxa_prevista"),
+    riscos = {"modelo_municipal": metricas_de_risco(d, "taxa_prevista_municipal"),
+              "agregacao_do_aluno": metricas_de_risco(d, "taxa_prevista"),
               "persistencia_t1": metricas_de_risco(d, "taxa_t1")}
     # A matriz de confusão sai da tabela de taxas: misturar contagem com
     # proporção na mesma coluna deixa as duas ilegíveis.
@@ -227,6 +278,12 @@ def main() -> int:
     abaixo = int((d.taxa_observada < d.meta_taxa).sum())
     print(f"  {abaixo:,} de {len(d):,} municípios ({abaixo / len(d):.1%}) "
           f"ficaram de fato abaixo da meta em {ANO_TESTE}")
+
+    # A partir daqui o número publicado é o do modelo municipal, que venceu a
+    # comparação acima. A agregação fica guardada para o relatório.
+    d["taxa_prevista_agregada"] = d.taxa_prevista
+    d["taxa_prevista"] = d.taxa_prevista_municipal
+    d["erro"] = d.taxa_prevista - d.taxa_observada
 
     # --- deriva entre anos ----------------------------------------------------
     # O modelo erra por dois motivos distintos, e somá-los num MAE só esconde
@@ -246,8 +303,7 @@ def main() -> int:
     # A UF cujo contexto de t-1 é anômalo contamina todo o seu ranking. Detectar
     # isso a partir da série, em vez de assumir, é o que torna o diagnóstico
     # reaproveitável em anos futuros.
-    serie = pd.read_parquet(DIR_GOLD / "resumo_uf.parquet")
-    serie = (serie[serie.rede == REDE_META_MUNICIPIO]
+    serie = (gold["resumo_uf"][gold["resumo_uf"].rede == REDE_META_MUNICIPIO]
              .pivot(index="sigla_uf", columns="ano", values="taxa_alfabetizacao"))
     anomalia = pd.DataFrame(columns=["variacao_ate_t1"])
     if {ANO_TREINO - 1, ANO_TREINO}.issubset(serie.columns):
@@ -285,7 +341,7 @@ def main() -> int:
     projecao = None
     if not args.sem_projecao:
         projecao = _projetar(base, treino, teste, numericas, categoricas, desvios,
-                             args.modelo, rel)
+                             args.modelo, gold, [quadro_treino, quadro_teste], rel)
         if projecao is None:
             print("  projeção não gerada; segue só com a aferição.", file=sys.stderr)
 
@@ -304,25 +360,26 @@ def main() -> int:
     abaixo_da_linha = float((d.taxa_prevista < d.taxa_observada).mean())
     titular(ax, "Previsto contra observado, por município",
             f"Rede municipal, {ANO_TESTE}. Tracejado: acerto perfeito. Erro médio "
-            f"{num(taxas['modelo']['erro_medio_absoluto'] * 100)} p.p.; "
+            f"{num(taxas['modelo_municipal']['erro_medio_absoluto'] * 100)} p.p.; "
             f"{pct(abaixo_da_linha, 0)} ficaram abaixo da linha.")
     fig_dispersao = salvar(fig, DIR_IMAGENS, "08_previsto_vs_observado_municipio")
 
-    fig, ax = plt.subplots(figsize=(7.8, 3.6))
+    fig, ax = plt.subplots(figsize=(7.8, 4.4))
     indicadores = ["recall", "precisao", "acuracia", "auc_roc"]
     rotulos = ["Sensibilidade\n(acha quem falha)", "Precisão\n(alarme certo)",
                "Acurácia", "AUC"]
     y = np.arange(len(indicadores))
-    altura, folga = 0.34, 0.19   # a folga impede que as duas barras se encostem
-    ax.barh(y + folga, [riscos["modelo"][i] for i in indicadores], height=altura,
-            color=SERIE[0], label="Modelo")
-    ax.barh(y - folga, [riscos["persistencia_t1"][i] for i in indicadores],
-            height=altura, color=SERIE[1], label="Repetir o ano anterior")
-    for i, chave in enumerate(indicadores):
-        for deslocamento, fonte in ((folga, "modelo"), (-folga, "persistencia_t1")):
-            v = riscos[fonte][chave]
+    # Três fontes por indicador: a folga entre elas impede que as barras encostem.
+    fontes = [("modelo_municipal", "Modelo municipal", SERIE[0], 0.26),
+              ("agregacao_do_aluno", "Agregação do modelo de aluno", SERIE[2], 0.0),
+              ("persistencia_t1", "Repetir o ano anterior", SERIE[1], -0.26)]
+    for chave, rotulo, cor, deslocamento in fontes:
+        ax.barh(y + deslocamento, [riscos[chave][i] for i in indicadores],
+                height=0.23, color=cor, label=rotulo)
+        for i, indicador in enumerate(indicadores):
+            v = riscos[chave][indicador]
             ax.text(v + 0.012, i + deslocamento, num(v, 3), va="center",
-                    color=TINTA, fontsize=9)
+                    color=TINTA, fontsize=8.5)
     ax.set_yticks(y, rotulos, fontsize=9.5, color=TINTA_2)
     ax.set_xlim(0, 1.12)
     ax.xaxis.set_visible(False)
@@ -362,7 +419,7 @@ def main() -> int:
 
     # --- relatório ---------------------------------------------------------------
     ganho_mae = (taxas["persistencia_t1"]["erro_medio_absoluto"]
-                 - taxas["modelo"]["erro_medio_absoluto"])
+                 - taxas["modelo_municipal"]["erro_medio_absoluto"])
     # Régua para julgar se uma meta é compatível com a trajetória: quanto o
     # município mediano de fato avançou no último ano medido.
     salto_mediano_realizado = float((d.taxa_observada - d.taxa_t1).median())
@@ -378,15 +435,22 @@ def main() -> int:
         f"municipal** — o único em que o INEP publica meta por município. Nenhuma "
         f"informação de {ANO_TESTE} entra na predição: as features são contexto de t-1 "
         f"e metas publicadas antes da avaliação.", "",
-        "## Por que agregar muda o problema", "",
+        "## Dois caminhos até a taxa do município", "",
         f"No grão do aluno o modelo tem AUC 0,64 — modesto, porque 86% da variância do "
         f"alvo está entre alunos da mesma escola e nenhuma variável disponível chega "
         f"lá. Agregado ao município, o erro individual se cancela na média ponderada e "
-        f"o mesmo modelo chega a **AUC {num(riscos['modelo']['auc_roc'], 3)}** para "
-        f"separar quem cumpre de quem não cumpre a meta. O modelo não ficou melhor: a "
-        f"pergunta mudou para o grão em que ele tem o que dizer. As seções seguintes "
-        f"medem quanto disso é mérito do modelo e quanto já estava na taxa do ano "
-        f"anterior.", "",
+        f"o mesmo modelo chega a **AUC "
+        f"{num(riscos['agregacao_do_aluno']['auc_roc'], 3)}** para separar quem cumpre "
+        f"de quem não cumpre a meta. O modelo não ficou melhor: a pergunta mudou para o "
+        f"grão em que ele tem o que dizer.", "",
+        f"O outro caminho é treinar direto nesse grão, com uma linha por município. Não "
+        f"é só mudança de escala: o modelo de aluno minimiza erro por criança, e assim "
+        f"o ajuste é dominado pelos municípios grandes, que concentram alunos; o modelo "
+        f"municipal minimiza erro por território, com cada município pesando o mesmo, "
+        f"que é como o resultado é medido. Ele chega a **AUC "
+        f"{num(riscos['modelo_municipal']['auc_roc'], 3)}** e é o que gera o ranking e a "
+        f"projeção desta página. As seções seguintes comparam os dois contra a taxa do "
+        f"ano anterior, que é o que já se sabia sem modelo nenhum.", "",
         "## Prova da agregação", "",
         f"A taxa observada reconstruída a partir dos microdados ponderados bate com o "
         f"indicador publicado em `meta_vs_resultado_municipio`: "
@@ -406,13 +470,16 @@ def main() -> int:
     linhas += [
         "## Erro da taxa municipal prevista", "",
         markdown_tabela(tabela_taxas, "fonte"), "",
-        f"O modelo erra {num(taxas['modelo']['erro_medio_absoluto'] * 100)} p.p. em "
-        f"média contra {num(taxas['persistencia_t1']['erro_medio_absoluto'] * 100)} p.p. "
-        f"de repetir o ano anterior — **{num(ganho_mae * 100)} p.p. a menos, "
+        f"O modelo municipal erra "
+        f"{num(taxas['modelo_municipal']['erro_medio_absoluto'] * 100)} p.p. em média "
+        f"contra {num(taxas['persistencia_t1']['erro_medio_absoluto'] * 100)} p.p. de "
+        f"repetir o ano anterior — **{num(ganho_mae * 100)} p.p. a menos, "
         f"{pct(ganho_mae / taxas['persistencia_t1']['erro_medio_absoluto'], 0)} de "
-        f"redução**. É a primeira vez no projeto que o aprendizado supera a "
-        f"persistência territorial com folga: no grão do aluno a diferença era de um "
-        f"milésimo de AUC.", "",
+        f"redução**. A agregação fica em "
+        f"{num(taxas['agregacao_do_aluno']['erro_medio_absoluto'] * 100)} p.p., entre as "
+        f"duas. É no grão do território que o aprendizado supera a persistência com "
+        f"folga: no grão do aluno nenhum dos modelos supera a taxa do ano anterior lida "
+        f"sozinha.", "",
         f"Base: {milhar(len(d))} municípios de {milhar(total)} avaliados em {ANO_TESTE} "
         f"({sem_meta} sem meta publicada, {sem_historico} sem taxa em t-1, e os "
         f"demais com menos de {MINIMO_ALUNOS} alunos avaliados — abaixo disso a própria "
@@ -424,13 +491,18 @@ def main() -> int:
         markdown_tabela(tabela_riscos, "fonte"), "",
         "Matriz de confusão (positivo = ficar abaixo da meta):", "",
         markdown_tabela(confusao, "fonte"), "",
-        "Aqui o placar é mais sóbrio: em AUC os dois empatam "
-        f"({num(riscos['modelo']['auc_roc'], 3)} contra "
-        f"{num(riscos['persistencia_t1']['auc_roc'], 3)}). A comparação de acurácia e "
-        "sensibilidade no limiar fixo da meta é enganosa, porque os dois têm viés "
-        "diferente: quem prevê mais baixo aciona mais alarmes e acerta mais dos que "
-        "falham, ao custo de errar mais dos que cumprem. O ganho real do modelo está no "
-        "**nível** da taxa prevista, não na ordenação.", "",
+        f"Em AUC, o modelo municipal ("
+        f"{num(riscos['modelo_municipal']['auc_roc'], 3)}) passa tanto da persistência "
+        f"({num(riscos['persistencia_t1']['auc_roc'], 3)}) quanto da agregação "
+        f"({num(riscos['agregacao_do_aluno']['auc_roc'], 3)}). É a primeira vez no "
+        f"projeto que algo supera a persistência territorial nessa métrica, e a margem "
+        f"é estreita: teste pareado contra a agregação dá intervalo de 95% entre +0,005 "
+        f"e +0,012 de AUC.", "",
+        "Já a comparação de acurácia e sensibilidade no limiar fixo da meta é enganosa, "
+        "porque os três têm viés diferente: quem prevê mais baixo aciona mais alarmes e "
+        "acerta mais dos que falham, ao custo de errar mais dos que cumprem. A "
+        "persistência tem o maior recall da tabela justamente por prever baixo demais.",
+        "",
         "## Deriva entre anos — o que nenhum modelo treinado em t-1 poderia saber", "",
         f"A rede municipal saltou de {pct(deriva['nacional_t1'])} em {ANO_TREINO} para "
         f"{pct(deriva['nacional_observado'])} em {ANO_TESTE}: "
@@ -509,26 +581,31 @@ def main() -> int:
             f"Tudo acima é **aferição**: mede o método contra um ano com gabarito. Esta "
             f"parte é **previsão**, e não tem contra o que conferir até o INEP divulgar "
             f"{ANO_PROJECAO}.", "",
-            f"O modelo aqui é outro: reajustado com **{milhar(p['alunos_treino'])} alunos "
-            f"de {ANO_TREINO} e {ANO_TESTE}**, e não só com {ANO_TREINO}. A divisão "
-            f"temporal existe para medir generalização, não para limitar o que o modelo "
-            f"final aprende — descartar metade dos dados na hora de projetar não "
-            f"melhoraria previsão nenhuma. O conjunto de features é o mesmo, para que a "
-            f"margem de erro da Parte 1 continue descrevendo este modelo.", "",
-            "## Como o quadro de features foi montado", "",
-            f"Não existe roteiro de alunos de {ANO_PROJECAO} — a avaliação não ocorreu. "
-            f"Mas **nenhuma feature descreve a criança**: são contexto municipal e "
-            f"estadual de t-1 mais as metas do ano, e {ANO_TESTE} já fechou. Cada aluno "
-            f"avaliado em {ANO_TESTE} vira uma linha de {ANO_PROJECAO} com o mesmo "
-            f"território, escola e peso, e todo o contexto trocado pelo de "
-            f"{ANO_PROJECAO}: indicadores de {ANO_TESTE}, metas de {ANO_PROJECAO} "
-            f"(mart `metas_municipio`) e taxas de rendimento de {ANO_TESTE}.", "",
-            f"**A suposição embutida é de composição**: a coorte de {ANO_PROJECAO} se "
-            f"parece com a de {ANO_TESTE} em porte de escola e distribuição de pesos. "
-            f"Município que fechar escolas, crescer muito ou migrar de rede vai destoar "
-            f"por um motivo que não é do modelo. Há verificação automática de que o "
-            f"contexto foi de fato reescrito — um merge que falhasse em silêncio "
-            f"repetiria o ano anterior sem mudar o formato da saída.", "",
+            f"**A taxa projetada sai do modelo municipal**, que venceu a comparação da "
+            f"Parte 1, reajustado com os quadros de {ANO_TREINO} e {ANO_TESTE}. A "
+            f"agregação da predição do aluno também foi reajustada, com "
+            f"**{milhar(p['alunos_treino'])} alunos dos dois anos**, e continua na saída "
+            f"para comparação. A divisão temporal existe para medir generalização, não "
+            f"para limitar o que o modelo final aprende — descartar metade dos dados na "
+            f"hora de projetar não melhoraria previsão nenhuma.", "",
+            "## Como os quadros de features foram montados", "",
+            f"O quadro municipal é direto: uma linha por município, com os indicadores "
+            f"de {ANO_TESTE} como contexto de t-1, as metas de {ANO_PROJECAO} e as taxas "
+            f"de rendimento de {ANO_TESTE}. Nada aí depende de saber quem será avaliado.",
+            "",
+            f"O quadro de alunos exige um contorno, porque não existe roteiro de alunos "
+            f"de {ANO_PROJECAO} — a avaliação não ocorreu. Como **nenhuma feature "
+            f"descreve a criança**, cada aluno avaliado em {ANO_TESTE} vira uma linha de "
+            f"{ANO_PROJECAO} com o mesmo território, escola e peso, e todo o contexto "
+            f"trocado. **A suposição embutida é de composição**: a coorte de "
+            f"{ANO_PROJECAO} se parece com a de {ANO_TESTE} em porte de escola e "
+            f"distribuição de pesos. Município que fechar escolas, crescer muito ou "
+            f"migrar de rede vai destoar por um motivo que não é do modelo. Há "
+            f"verificação automática de que o contexto foi de fato reescrito — um merge "
+            f"que falhasse em silêncio repetiria o ano anterior sem mudar o formato da "
+            f"saída.", "",
+            f"É também dessa agregação que vem o tamanho amostral efetivo de cada "
+            f"município, usado para estratificar a incerteza da probabilidade.", "",
             "## Resultado", "",
             f"**{milhar(p['em_risco'])} de {milhar(len(pr))} municípios "
             f"({pct(p['em_risco'] / len(pr))}) são projetados abaixo da meta de "
