@@ -325,31 +325,65 @@ não muda de um ano para o outro.
 
 ## Perguntas de negócio
 
-**Quais fatores mais impactam a alfabetização?** A escola, que não está na base
-como variável. Entre o que é mensurável: histórico do próprio território, nível
-socioeconômico municipal e fluxo escolar nos anos iniciais, nessa ordem.
+### Quais fatores mais impactam a alfabetização?
 
-**Quais municípios apresentam maior risco?** Lista completa em
-`data/predictions/risco_2026_projetado.parquet` e no painel executivo. Na
-aferição de 2025, 815 municípios saíram com probabilidade de 80% ou mais de
-descumprir a meta; 60% de fato descumpriram.
+A decomposição da variância do alvo aponta para a escola, que responde por 13,5%
+a 14,5% da variação, enquanto o município explica 8,1% a 8,3% e a UF fica entre
+3,7% e 4,0%. No município mediano existem 41 pontos percentuais entre a melhor e
+a pior escola. O problema é que a fonte não traz nenhuma variável de escola nem
+de aluno, então esse fator aparece na medição mas não pode ser usado.
 
-**Quais regiões possuem padrões semelhantes?** O agrupamento que organiza os
-dados é a velocidade de melhora, não a renda regional. Na rede municipal, entre
-2024 e 2025, Bahia (+19,4 p.p.), Acre (+17,5), Piauí (+17,1), Alagoas (+15,3) e
-Paraíba (+15,1) puxaram o salto nacional; Ceará (-1,5) e Santa Catarina (+1,9)
-ficaram parados. O Ceará já está em 83,9%, acima da meta de 2030.
+Entre as variáveis que existem, a mais forte é o histórico do próprio território:
+a taxa do município no ano anterior correlaciona +0,71 com o resultado. Depois
+vêm o nível socioeconômico municipal e o fluxo escolar dos anos iniciais,
+principalmente o abandono.
 
-**É possível prever quais municípios não atingirão as metas?** Sim, com erro
-médio de 10,2 p.p. na taxa e AUC 0,750 no risco, medidos contra 2025 sem usar
-informação de 2025. Para 2026, 1.039 de 4.972 municípios (20,9%) são projetados
-abaixo da meta, contra 27,9% que ficaram abaixo em 2025. O modelo subestimou
-2025 em 6,4 p.p. porque não antecipa saltos de nível, então o número de 2026
-tende a ser um teto.
+### Quais municípios apresentam maior risco?
 
-**Quais variáveis mais influenciam o modelo?** As quatro primeiras por
-permutação e SHAP são medidas do território no ano anterior: taxa da rede,
-meta do ano, taxa da rede pública e nível de alfabetização do município.
+A lista completa está em `data/predictions/risco_2026_projetado.parquet` e no
+painel executivo, com a probabilidade estimada para cada município e o porte da
+rede ao lado, porque a margem de erro depende dele.
+
+Para saber quanto confiar nessa lista, aferimos o mesmo procedimento contra
+2025: 815 municípios receberam probabilidade de 80% ou mais de descumprir a meta,
+e 60% deles descumpriram de fato. A ordenação funciona; o valor absoluto da
+probabilidade é pessimista.
+
+### Quais regiões possuem padrões semelhantes?
+
+Por nível de alfabetização, as regiões não se separam como se esperaria: em 2025
+o Centro-Oeste lidera com 73,8%, o Nordeste aparece em 66,0% e o Sudeste fica
+atrás, com 64,7%.
+
+O recorte que revela grupos consistentes é a velocidade de avanço. Entre 2024 e
+2025, na rede municipal, Bahia subiu 19,4 pontos percentuais, Acre 17,5, Piauí
+17,1, Alagoas 15,3 e Paraíba 15,1, e foram esses estados que puxaram o salto
+nacional. Ceará e Santa Catarina praticamente não se moveram (-1,5 e +1,9), mas
+por razões opostas: Santa Catarina está em 64,7% e o Ceará já alcançou 83,9%,
+acima da meta nacional de 2030.
+
+### É possível prever quais municípios não atingirão as metas?
+
+Sim, dentro de uma margem conhecida. Treinando apenas com 2024 e prevendo 2025,
+o erro médio da taxa municipal é de 10,2 pontos percentuais e o AUC para separar
+quem cumpre de quem não cumpre a meta é 0,750.
+
+A projeção para 2026 aponta 1.039 de 4.972 municípios abaixo da meta, ou 20,9%,
+contra os 27,9% que ficaram abaixo em 2025. Esse número deve ser lido como teto.
+O modelo subestimou 2025 em 6,4 pontos percentuais porque não tem como antecipar
+saltos de nível como o que aconteceu naquele ano, e a mesma limitação vale para
+2026.
+
+### Quais variáveis mais influenciam o modelo?
+
+Permutação e SHAP produzem a mesma ordem, e as quatro primeiras colocadas medem
+o mesmo território no ano anterior: a taxa da rede do aluno no município, a meta
+do ano, a taxa da rede pública e o nível de alfabetização do município. INSE e
+taxas de rendimento aparecem depois, com contribuição pequena.
+
+Vale ler esse ranking como ordem de grupos, não de variáveis isoladas. Há oito
+pares de features com correlação acima de 0,80, e as quatro primeiras são
+praticamente a mesma informação medida de quatro maneiras.
 
 ## Limitações do projeto
 
