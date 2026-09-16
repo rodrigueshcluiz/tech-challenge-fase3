@@ -347,6 +347,35 @@ Nada aqui invalida número publicado.
 
 ---
 
+## Correção: o caso do Rio Grande do Sul estava lido ao contrário
+
+O relatório de risco e o README afirmavam que o modelo, tendo herdado o ano da
+enchente como patamar, projetava para o Rio Grande do Sul "um colapso que não se
+confirmou", e que "boa parte" dos municípios gaúchos sinalizados havia cumprido a
+meta. **A afirmação era falsa, e nunca tinha sido calculada** — estava escrita
+como texto fixo no gerador do relatório.
+
+O que os dados dizem:
+
+| | |
+|---|---:|
+| municípios do RS entre os 200 de maior risco | 131 |
+| desses, ficaram de fato abaixo da meta | **118 (90%)** |
+| municípios do RS que cumpriram a meta em 2025 | 19,4% |
+| municípios do país que cumpriram | 72,1% |
+
+O alarme estava certo. O modelo errou a **magnitude**, prevendo mediana de 54,6%
+contra 61,0% observada, que é o mesmo viés para baixo de todo o país, e acertou a
+**direção**.
+
+A correção simplifica o projeto em vez de complicá-lo. A Parte 1 e a Parte 2 do
+relatório de risco tratavam o RS como dois fenômenos distintos — um artefato de
+modelo em 2025 e um achado real de meta descalibrada em 2026. **É o mesmo
+fenômeno nos dois anos**: metas calibradas sobre o patamar anterior ao choque,
+num estado que ainda não o recuperou.
+
+---
+
 ## Adendo da revisão final
 
 Uma segunda revisão, feita depois desta auditoria, encontrou um ponto que ela

@@ -126,7 +126,10 @@ achados.append(
     f"**A escola é o nível territorial mais informativo**: explica {pct(proporcoes['Escola'])} "
     f"da variância do alvo, contra {pct(proporcoes['Município'])} do município e "
     f"{pct(proporcoes['UF'])} da UF. E é exatamente o nível que não podemos enriquecer — "
-    f"o código de escola do INEP é mascarado e resorteado a cada ano.")
+    f"o código de escola do INEP é mascarado e resorteado a cada ano. "
+    f"Este é o estimador simples, que superestima cerca de 1 p.p. por incluir o ruído "
+    f"amostral das escolas pequenas; o componente de variância da ANOVA põe a escola em "
+    f"13,5%, o município em 8,1% e a UF em 4,0% (ver `reports/AUDITORIA.md`).")
 achados.append(
     f"Mesmo assim, **{pct(1 - proporcoes['Escola'], 0)} da variação está entre alunos da mesma "
     f"escola**, e sobre isso não há nenhuma variável na fonte: os microdados não trazem "

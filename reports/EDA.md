@@ -7,7 +7,7 @@ Gerado por `notebooks/01_analise_exploratoria.py`.
 
 1. O alvo é razoavelmente equilibrado: 62,5% de alfabetizados na base inteira, sem necessidade de reamostragem.
 2. O salto de 59,2% para 65,7% entre 2024 e 2025 é **real**, não efeito de composição: com o conjunto de UFs fixo em 26, a diferença se mantém em +6,5 p.p.
-3. **A escola é o nível territorial mais informativo**: explica 14,5% da variância do alvo, contra 8,3% do município e 3,7% da UF. E é exatamente o nível que não podemos enriquecer — o código de escola do INEP é mascarado e resorteado a cada ano.
+3. **A escola é o nível territorial mais informativo**: explica 14,5% da variância do alvo, contra 8,3% do município e 3,7% da UF. E é exatamente o nível que não podemos enriquecer — o código de escola do INEP é mascarado e resorteado a cada ano. Este é o estimador simples, que superestima cerca de 1 p.p. por incluir o ruído amostral das escolas pequenas; o componente de variância da ANOVA põe a escola em 13,5%, o município em 8,1% e a UF em 4,0% (ver `reports/AUDITORIA.md`).
 4. Mesmo assim, **86% da variação está entre alunos da mesma escola**, e sobre isso não há nenhuma variável na fonte: os microdados não trazem sexo, idade, raça nem dados do domicílio. Esse é o teto do modelo, e ele vem da fonte, não da modelagem.
 5. No município mediano, a melhor e a pior escola diferem **41 pontos percentuais**. Tratar o município como unidade homogênea apaga essa diferença.
 6. **O INSE parece irrelevante e não é.** No grão do aluno a correlação é +0,02; no grão do município sobe para +0,14, e dentro da mesma UF fica em +0,16. A diluição é consequência direta da decomposição acima: uma variável constante dentro do município não consegue explicar a variação que acontece dentro dele.

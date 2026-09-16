@@ -523,17 +523,31 @@ def main() -> int:
     ]
     if len(anomalia):
         pior = anomalia.index[0]
+        topo = ranking.head(TOPO_RANKING * 5)
+        no_topo = topo[topo.sigla_uf == pior]
+        acertou = int((no_topo.gap_observado < 0).sum())
+        uf_toda = ranking[ranking.sigla_uf == pior]
         linhas += [
             f"O caso extremo é **{pior}**: a rede municipal caiu "
             f"{num(anomalia.variacao_ate_t1.iloc[0] * 100, 1, sinal=True)} p.p. entre "
             f"{ANO_TREINO - 1} e {ANO_TREINO}, contra "
             f"{num(anomalia.variacao_ate_t1.iloc[1] * 100, 1, sinal=True)} p.p. da "
-            f"segunda maior queda. O modelo lê esse ano deprimido como o patamar "
-            f"estrutural do estado e projeta descumprimento generalizado — "
-            f"{milhar(int((ranking.head(200).sigla_uf == pior).sum()))} dos 200 "
-            f"municípios de maior risco são de {pior}, e boa parte deles cumpriu a meta. "
-            f"**Um sistema em produção precisa detectar o ano anômalo antes de usá-lo "
-            f"como contexto**, e não herdá-lo como estrutura.", "",
+            f"segunda maior queda. O modelo herda esse ano deprimido como patamar do "
+            f"estado e concentra o alarme ali: **{milhar(len(no_topo))} dos "
+            f"{len(topo)} municípios de maior risco são de {pior}**.", "",
+            f"E o alarme estava certo. Desses {milhar(len(no_topo))}, "
+            f"**{milhar(acertou)} ficaram mesmo abaixo da meta** "
+            f"({pct(acertou / len(no_topo), 0)}). No estado inteiro, só "
+            f"{pct(float((uf_toda.gap_observado >= 0).mean()))} "
+            f"dos municípios cumpriram, contra "
+            f"{pct(float((ranking.gap_observado >= 0).mean()))} no país. O que o modelo "
+            f"errou foi a **magnitude**, não a direção: previu mediana de "
+            f"{pct(float(no_topo.taxa_prevista.median()))} contra "
+            f"{pct(float(no_topo.taxa_observada.median()))} observada, o mesmo viés "
+            f"para baixo que aparece em todo o país.", "",
+            f"A leitura, portanto, não é de erro do modelo: é de um estado cujas metas "
+            f"foram calibradas antes do choque e não foram repactuadas depois dele. A "
+            f"Parte 2 mostra que o problema continua em {ANO_PROJECAO}.", "",
         ]
     linhas += [
         "## Incerteza por porte do município", "",

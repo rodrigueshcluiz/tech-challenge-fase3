@@ -6,9 +6,13 @@ avaliada, não a população de crianças — e o indicador oficial é ponderado
 Os baselines importam mais que de costume aqui. Com 86% da variância entre
 alunos da mesma escola (ver `reports/EDA.md`), qualquer modelo terá discriminação
 modesta, e o número sozinho não diz se ele é bom. O que diz é a comparação com
-**persistência territorial**: prever para todo aluno a taxa do seu município no
-ano anterior. Se o modelo não superar isso, ele não aprendeu nada além do que já
-estava na tabela.
+**persistência territorial**: prever para todo aluno a taxa da sua rede no seu
+município no ano anterior. Medido, nenhum dos três modelos supera esse baseline
+em AUC — o ganho do aprendizado no grão do aluno está na calibração, e no grão
+do município, onde a decisão acontece.
+
+Este módulo mede o grão do aluno. As métricas municipais (erro da taxa, risco de
+meta, calibração da probabilidade) estão em `src/modeling/municipio.py`.
 """
 from __future__ import annotations
 

@@ -225,15 +225,22 @@ tornaria o problema trivial. Há verificação automática de que nenhuma coluna
 1. **`mun_variacao_publica_t1` e `uf_variacao_publica_t1` são 100% nulas em 2024**
    — variação em t-1 exige t-2. `src/modeling/dados.py` as descarta
    automaticamente e registra o descarte.
-2. **`mun_media_lp_t1` está na tabela e fora do conjunto de features.** Ela
-   correlaciona 0,930 com `mun_taxa_rede_t1` e carrega menos sinal sobre o alvo;
-   acrescentá-la piorou AUC e Brier em base completa. Ver `reports/AUDITORIA.md`.
+2. **`mun_media_lp_t1` está na tabela e fora do conjunto de features do aluno.**
+   Ela correlaciona 0,930 com `mun_taxa_rede_t1` e carrega menos sinal sobre o
+   alvo; acrescentá-la piorou AUC e Brier em base completa. **No grão do
+   município ela é útil** e entra nas features de `modelo_municipal.py`, onde é
+   a terceira mais importante. Ver `reports/AUDITORIA.md`.
 3. **`escola_alunos_avaliados` e `mun_alunos_avaliados` são contemporâneas.** São
    estruturais e não derivam do alvo, mas estritamente não são conhecidas antes
    da avaliação. Correlação com o alvo: −0,013 e −0,047.
 4. **Há redundância alta entre features** — oito pares com |r| > 0,80. Podar
    piora o desempenho, mas a importância por permutação subestima features
    correlacionadas: leia o ranking como de grupos, não de variáveis isoladas.
+5. **Dois modelos consomem esta Gold, em grãos diferentes.** O do aluno lê
+   `aluno_features`; o municipal (`src/modeling/modelo_municipal.py`) monta seu
+   próprio quadro a partir de `indicador_municipio`, `resumo_uf` e `metas_*`,
+   com uma linha por município. Os dois seguem a mesma regra de defasagem:
+   resultado de t-1, meta do ano corrente.
 
 ---
 

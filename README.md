@@ -338,17 +338,27 @@ com todo o contexto trocado, o que supõe composição estável de escolas e pes
    o conjunto de UFs fixo. Não é efeito de cobertura.
 6. Centro-Oeste (73,8%) lidera; o Nordeste (66,0%) está acima do Sudeste
    (64,7%).
-7. Agregar ao município leva o AUC de 0,64 para 0,75 e reduz em 18% o erro de
-   repetir o ano anterior.
-8. As metas de 2025 exigiam do município mediano +2,3 p.p.; o avanço realizado
-   foi +7,9 p.p.
-9. O Rio Grande do Sul caiu 19,3 p.p. entre 2023 e 2024. O modelo de aferição
-   herdou esse ano como patamar e projetou descumprimento para 129 dos 200
-   municípios de maior risco; a maioria cumpriu.
-10. O erro por município é maior nos pequenos: 12,4 p.p. no quartil de menor
-    porte contra 7,8 p.p. no de maior. 13,4% do erro é ruído amostral da própria
+7. Mudar de grão muda o problema. O AUC vai de 0,64 no aluno para 0,75 quando as
+   probabilidades são agregadas, e para 0,758 com um modelo treinado direto no
+   município, que reduz em 20% o erro de repetir o ano anterior.
+8. Treinar no grão da decisão vence agregar a predição individual, mas por pouco:
+   9,97 contra 10,20 p.p. de erro. A diferença é a função de perda. Agregando, o
+   ajuste é dominado pelos municípios grandes, que concentram alunos; treinando
+   no município, cada território pesa igual, que é como o resultado é medido.
+9. A importância das variáveis depende do grão. No aluno, a taxa da rede em t-1
+   lidera; no município, a meta do ano. E a média de proficiência do município,
+   descartada como feature do aluno por ser redundante com a taxa, é a terceira
+   mais importante no grão municipal.
+10. As metas de 2025 exigiam do município mediano +2,3 p.p.; o avanço realizado
+    foi +7,8 p.p.
+11. O Rio Grande do Sul caiu 19,3 p.p. entre 2023 e 2024, sete vezes a segunda
+    maior queda do país. O modelo concentrou o alarme ali, e acertou: dos 131
+    municípios gaúchos entre os 200 de maior risco, 118 ficaram mesmo abaixo da
+    meta. No estado, só 19,4% cumpriram, contra 72,1% no país.
+12. O erro por município é maior nos pequenos: 12,1 p.p. no quartil de menor
+    porte contra 7,5 p.p. no de maior. 13,4% do erro é ruído amostral da própria
     taxa observada.
-11. Há 8 pares de features com correlação acima de 0,80. A importância é de
+13. Há 8 pares de features com correlação acima de 0,80. A importância é de
     grupos de variáveis, não de variáveis isoladas; podar piora o resultado.
 
 ## Perguntas de negócio
@@ -373,9 +383,16 @@ painel executivo, com a probabilidade estimada para cada município e o porte da
 rede ao lado, porque a margem de erro depende dele.
 
 Para saber quanto confiar nessa lista, aferimos o mesmo procedimento contra
-2025: 815 municípios receberam probabilidade de 80% ou mais de descumprir a meta,
-e 60% deles descumpriram de fato. A ordenação funciona; o valor absoluto da
+2025: 770 municípios receberam probabilidade de 80% ou mais de descumprir a meta,
+e 60,5% deles descumpriram de fato. A ordenação funciona; o valor absoluto da
 probabilidade é pessimista.
+
+O topo do ranking é dominado pelo Rio Grande do Sul, e foi olhar a composição
+dele, em vez de só a métrica agregada, que revelou o caso mais acionável do
+projeto. O alarme estava correto: dos 131 municípios gaúchos entre os 200 de
+maior risco, 118 ficaram mesmo abaixo da meta. No estado, só 19,4% cumpriram,
+contra 72,1% no país. O que está em jogo não é gestão municipal, e sim metas
+calibradas sobre o patamar anterior à enchente de 2024 e nunca repactuadas.
 
 ### Quais regiões possuem padrões semelhantes?
 
@@ -386,7 +403,7 @@ atrás, com 64,7%.
 O recorte que revela grupos consistentes é a velocidade de avanço. Entre 2024 e
 2025, na rede municipal, Bahia subiu 19,4 pontos percentuais, Acre 17,5, Piauí
 17,1, Alagoas 15,3 e Paraíba 15,1, e foram esses estados que puxaram o salto
-nacional. Ceará e Santa Catarina praticamente não se moveram (-1,5 e +1,9), mas
+nacional. Ceará e Santa Catarina praticamente não se moveram (-1,4 e +1,9), mas
 por razões opostas: Santa Catarina está em 64,7% e o Ceará já alcançou 83,9%,
 acima da meta nacional de 2030.
 
@@ -424,8 +441,16 @@ praticamente a mesma informação medida de quatro maneiras.
   anos nem validar em mais de um ponto no tempo.
 - A projeção de 2026 não pode ser validada até o INEP publicar o resultado.
 - O modelo não antecipa mudança de nível. Capturou 45% do salto de 2025 e
-  herda choques do ano anterior, como o do Rio Grande do Sul, como se fossem
-  estrutura.
+  herda o patamar do ano anterior, inclusive quando ele veio de um choque como
+  o do Rio Grande do Sul.
+- **O modelo municipal treina com 5.448 linhas, contra 1,85 milhão do modelo de
+  aluno.** Com uma amostra dessa ordem, a validação cruzada dentro de 2024 tem
+  desvio de 2,3 p.p. entre folds, e distinguir configurações fica difícil. O
+  ganho de 0,23 p.p. sobre a agregação é sólido no teste pareado, mas é um ganho
+  medido em um único ano fora do tempo.
+- A vantagem do modelo municipal foi medida uma vez, contra 2025. Só a safra de
+  2026 dirá se ela se repete, e é por isso que a agregação continua publicada
+  ao lado.
 - A probabilidade de descumprir é calibrada nos resíduos de 2025 e tende a ser
   otimista em um ano ainda não avaliado.
 - `escola_alunos_avaliados` e `mun_alunos_avaliados` são contados no próprio
@@ -452,11 +477,13 @@ declarada, disponível assim que o ano anterior fecha.
 4. **Meta descalibrada após choque.** As metas do Rio Grande do Sul foram
    calculadas sobre o patamar de 2023 (63,5%). O estado caiu para 44,2% em 2024
    e recuperou para 52,1% em 2025; a meta mediana de 2026 é 75,9%, contra 69,4%
-   no país. Por isso 283 dos 299 municípios gaúchos aparecem em risco. Não é
-   indicador de gestão; é caso de repactuação.
-5. **Detecção de ano atípico.** Uma queda como a do RS contamina toda a projeção
-   do estado. Monitorar variação atípica por UF evita ler um choque como
-   tendência.
+   no país. Em 2025 apenas 19,4% dos municípios gaúchos cumpriram a meta, contra
+   72,1% no país, e para 2026 são 283 de 299 em risco. Não é indicador de
+   gestão; é caso de repactuação.
+5. **Detecção de ano atípico.** Uma queda como a do RS desloca o patamar de todo
+   o estado e entra no modelo como se fosse estrutura. Monitorar variação atípica
+   por UF serve menos para corrigir a previsão, que acertou, e mais para acionar
+   a revisão das metas daquele território.
 
 O projeto não autoriza decisão sobre uma criança específica. A unidade de
 decisão é o território.
@@ -469,8 +496,11 @@ decisão é o território.
 - Censo Escolar agregado, FUNDEB, Censo 2022 do IBGE e Cadastro Único.
 - Correção explícita de deriva entre anos e intervalo de predição por
   reamostragem.
-- Um modelo direto no grão do município, para comparar com a agregação.
+- Combinar as duas previsões municipais em vez de escolher uma. A média simples
+  foi testada e ficou entre as duas (10,06 p.p.); uma combinação ponderada por
+  porte pode ir além, já que a agregação erra menos onde há muitos alunos.
 - Quando 2026 sair: validação com origem rolante (2024 → 2025, 2024+2025 →
-  2026) e conferência da projeção contra o resultado.
+  2026), conferência da projeção contra o resultado e uma segunda medição da
+  vantagem do modelo municipal.
 - Persistir o modelo treinado e versionar as predições junto ao manifesto da
   Gold.

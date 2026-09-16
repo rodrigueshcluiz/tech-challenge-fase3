@@ -78,7 +78,11 @@ Descontado esse deslocamento, o erro médio cai de 10,0 p.p. para 8,6 p.p.: só 
 | PB | 198 | 0,5916 | 0,7399 | -0,1050 | 0,1498 |
 | AP | 16 | 0,4945 | 0,6217 | -0,0850 | 0,1112 |
 
-O caso extremo é **RS**: a rede municipal caiu -19,3 p.p. entre 2023 e 2024, contra -2,7 p.p. da segunda maior queda. O modelo lê esse ano deprimido como o patamar estrutural do estado e projeta descumprimento generalizado — 131 dos 200 municípios de maior risco são de RS, e boa parte deles cumpriu a meta. **Um sistema em produção precisa detectar o ano anômalo antes de usá-lo como contexto**, e não herdá-lo como estrutura.
+O caso extremo é **RS**: a rede municipal caiu -19,3 p.p. entre 2023 e 2024, contra -2,7 p.p. da segunda maior queda. O modelo herda esse ano deprimido como patamar do estado e concentra o alarme ali: **131 dos 200 municípios de maior risco são de RS**.
+
+E o alarme estava certo. Desses 131, **118 ficaram mesmo abaixo da meta** (90%). No estado inteiro, só 19,4% dos municípios cumpriram, contra 72,1% no país. O que o modelo errou foi a **magnitude**, não a direção: previu mediana de 54,6% contra 61,0% observada, o mesmo viés para baixo que aparece em todo o país.
+
+A leitura, portanto, não é de erro do modelo: é de um estado cujas metas foram calibradas antes do choque e não foram repactuadas depois dele. A Parte 2 mostra que o problema continua em 2026.
 
 ## Incerteza por porte do município
 
